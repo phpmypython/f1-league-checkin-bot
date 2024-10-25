@@ -1,0 +1,11 @@
+{
+  "tasks": {
+    "dev": "deno run --env-file --allow-env --allow-net --allow-read --watch main.ts"
+  },
+  "imports": {
+    "@discordjs/builders": "npm:@discordjs/builders@^1.9.0",
+    "@std/assert": "jsr:@std/assert@1",
+    "discord.js": "npm:discord.js@^14.16.3",
+    "uuid": "npm:uuid@^10.0.0"
+  }
+}
