@@ -30,9 +30,9 @@ bot.on("ready", async () => {
     bot.user.setPresence({
       activities: [
         {
-          name: "Goonin",
+          name: "Watching",
           type: 4,
-          state: "😩 Now a Gooner",
+          state: "Created by sharia_coleslaw",
         },
       ],
       status: "online",
