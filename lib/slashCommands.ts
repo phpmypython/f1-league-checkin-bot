@@ -18,7 +18,7 @@ class SlashCommands {
   /**
    * @param client - The Discord client instance
    */
-  constructor(client: Client) {
+  constructor(client: Client,GuildIds: string[]) {
     this.client = client; // Initializing the client property with the passed client
 
     this.trackChoices = Object.values(Tracks).map((track) => ({
@@ -26,13 +26,13 @@ class SlashCommands {
       value: track.name,
     }));
 
-    this.registerCommands(); // Registering commands when the class is instantiated
+    this.registerCommands(GuildIds); // Registering commands when the class is instantiated
   }
 
   /**
    * Registers the slash commands with Discord
    */
-  private registerCommands() {
+  private registerCommands(GuildIds: string[]) {
     const command = new SlashCommandBuilder()
       .setName("postcheckin")
       .setDescription("Posts a check-in for an event")
@@ -79,10 +79,12 @@ class SlashCommands {
         .setDescription("Upload an image for the track map")
         .setRequired(false)
     );
-    
-    const guild = this.client.guilds.cache.get(GUILD_ID);
-    guild?.commands.create(command.toJSON());
-    console.log("Command registered: /postcheckin");
+    // Register the command for each guild
+    for (const guildId of GuildIds) {
+      const guild = this.client.guilds.cache.get(guildId);
+      guild?.commands.create(command.toJSON());
+      console.log("Command registered: /postcheckin");
+    }
   }
   private sendCheckInMessage(CheckInOptions: CheckInOptions) {
     // Implementation for sending the check-in message

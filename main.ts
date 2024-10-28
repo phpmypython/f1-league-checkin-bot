@@ -1,3 +1,4 @@
+import { Application } from "https://deno.land/x/oak/mod.ts";
 import { Client, GatewayIntentBits, Partials } from "discord.js";
 import SlashCommands from "./lib/slashCommands.ts";
 import CheckInSystem from "./lib/checkInSystem.ts";
@@ -9,8 +10,6 @@ if (!process.env.BOT_TOKEN) {
   process.exit(1);
 }
 const token = process.env.BOT_TOKEN;
-const testChannelId = process.env.TESTING_CHANNEL_ID; // Optional: Define your testing channel ID
-// Optional: Define your testing guild ID
 /*
  * Create a new Discord client instance
  */
@@ -41,8 +40,11 @@ bot.on("ready", async () => {
   } else {
     console.error("Bot user is null");
   }
+  //console.log the guild id from the bot
+  console.log(`Guild ID: ${bot.guilds.cache.map(guild => guild.id)}`);
+  const guildIds = bot.guilds.cache.map(guild => guild.id);
 
-  const slashCommand = new SlashCommands(bot);
+  const slashCommand = new SlashCommands(bot, guildIds);
   
   bot.on("interactionCreate", (interaction) => {
     slashCommand.handleInteraction(interaction);
@@ -53,3 +55,10 @@ bot.on("ready", async () => {
 bot.login(token).catch((error) => {
   console.error("Error logging in:", error);
 });
+
+const app = new Application();
+app.use((ctx) => {
+  ctx.response.body = "Hello from Deno and Digital Ocean!";
+});
+
+await app.listen({ port: 8000 });

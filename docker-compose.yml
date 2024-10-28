@@ -1,0 +1,11 @@
+version: "3"
+x-build:
+  args:
+    DENO_PLATFORM: "linux/amd64"
+services:
+  web:
+    build: .
+    container_name: league-checkin-bot
+    image: deno-image
+    ports:
+      - "8000:8000"
