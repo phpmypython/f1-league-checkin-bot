@@ -9,3 +9,5 @@ services:
     image: deno-image
     ports:
       - "8000:8000"
+    volumes:
+      - ./data:/app/data  # Mounts a local 'data' folder to '/app/data' in the container

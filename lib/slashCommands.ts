@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from "@discordjs/builders"; // Importing the SlashCommandBuilder from discord.js builders
+import { SlashCommandBuilder } from "@discordjs/builders";
 import {
   ChatInputCommandInteraction,
   Client,
@@ -8,30 +8,26 @@ import {
   TextChannel,
 } from "discord.js";
 import { Tracks } from "../types/tracks.ts";
-import process from "node:process"; // Importing process from node
-import { CheckInOptions } from "../types/checkIn.ts"; // Importing CheckInOptions type
-import CheckInSystem from "./checkInSystem.ts"; // Importing CheckInSystem class
-const GUILD_ID = process.env.TESTING_GUILD_ID;
+import process from "node:process";
+import { CheckInOptions } from "../types/checkIn.ts";
+import CheckInSystem from "./checkInSystem.ts";
+import { v4 as uuidv4 } from "uuid"; // Import UUID to generate unique event IDs
+
 class SlashCommands {
-  private client: Client; // Declaring a private client property of type Client
-  public trackChoices: { name: string; value: string }[]; // Declaring a public property for track choices
-  /**
-   * @param client - The Discord client instance
-   */
-  constructor(client: Client,GuildIds: string[]) {
-    this.client = client; // Initializing the client property with the passed client
+  private client: Client;
+  public trackChoices: { name: string; value: string }[];
+
+  constructor(client: Client, GuildIds: string[], private checkInSystem: CheckInSystem) {
+    this.client = client;
 
     this.trackChoices = Object.values(Tracks).map((track) => ({
       name: track.displayName,
       value: track.name,
     }));
 
-    this.registerCommands(GuildIds); // Registering commands when the class is instantiated
+    this.registerCommands(GuildIds);
   }
 
-  /**
-   * Registers the slash commands with Discord
-   */
   private registerCommands(GuildIds: string[]) {
     const command = new SlashCommandBuilder()
       .setName("postcheckin")
@@ -42,71 +38,70 @@ class SlashCommands {
           .setDescription("What Season are we in?")
           .setRequired(true)
       )
-    .addNumberOption((option) =>
-      option
-        .setName("round")
-        .setDescription("What Round are we in?")
-        .setRequired(true)
-    )
-    .addStringOption((option) =>
-      option
-        .setName("date_time")
-        .setDescription("Date and time of the event (e.g., YYYY-MM-DD HH:MM)")
-        .setRequired(true)
-    )
-    .addStringOption((option) =>
-      option
-        .setName("timezone")
-        .setDescription("Timezone of the event")
-        .setRequired(true)
-        .addChoices(
-          { name: "Eastern", value: "EST" },
-          { name: "Central", value: "CST" },
-          { name: "Mountain", value: "MST" },
-          { name: "Pacific", value: "PST" },
-        )
-    )
-    .addStringOption((option) =>
-      option
-        .setName("track")
-        .setDescription("The track for the event")
-        .setRequired(true)
-        .addChoices(...this.trackChoices)
-    )
-    .addAttachmentOption((option) =>
-      option
-        .setName("track_map")
-        .setDescription("Upload an image for the track map")
-        .setRequired(false)
-    );
-    // Register the command for each guild
+      .addNumberOption((option) =>
+        option
+          .setName("round")
+          .setDescription("What Round are we in?")
+          .setRequired(true)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("date_time")
+          .setDescription("Date and time of the event (e.g., YYYY-MM-DD HH:MM)")
+          .setRequired(true)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("timezone")
+          .setDescription("Timezone of the event")
+          .setRequired(true)
+          .addChoices(
+            { name: "Eastern", value: "EST" },
+            { name: "Central", value: "CST" },
+            { name: "Mountain", value: "MST" },
+            { name: "Pacific", value: "PST" },
+          )
+      )
+      .addStringOption((option) =>
+        option
+          .setName("track")
+          .setDescription("The track for the event")
+          .setRequired(true)
+          .addChoices(...this.trackChoices)
+      )
+      .addAttachmentOption((option) =>
+        option
+          .setName("track_map")
+          .setDescription("Upload an image for the track map")
+          .setRequired(false)
+      );
+
     for (const guildId of GuildIds) {
       const guild = this.client.guilds.cache.get(guildId);
       guild?.commands.create(command.toJSON());
       console.log("Command registered: /postcheckin");
     }
   }
-  private sendCheckInMessage(CheckInOptions: CheckInOptions) {
-    // Implementation for sending the check-in message
-    console.log("Check-in options:", CheckInOptions);
-    new CheckInSystem().setup(this.client, CheckInOptions);
-  
+
+  private async sendCheckInMessage(checkInOptions: CheckInOptions) {
+    const uniqueId = uuidv4(); // Generate a unique ID for this event
+
+    // Store event in SQLite and send initial check-in embed
+    await this.checkInSystem.createEventEmbed(checkInOptions, uniqueId);
   }
+
   private extractChannelIds(message: string): string[] {
-    const channelIdRegex = /<#(\d+)>/g; // Regex to match channel mentions
-    const matches = message.match(channelIdRegex); // Find all matches in the message
-    return matches ? matches.map((match) => match.slice(2, -1)) : []; // Extract channel IDs
+    const channelIdRegex = /<#(\d+)>/g;
+    const matches = message.match(channelIdRegex);
+    return matches ? matches.map((match) => match.slice(2, -1)) : [];
   }
 
   private extractRoleIds(message: string): string[] {
-    const roleIdRegex = /<@&(\d+)>/g; // Regex to match role mentions
-    const matches = message.match(roleIdRegex); // Find all matches in the message
-    return matches ? matches.map((match) => match.slice(3, -1)) : []; // Extract role IDs
+    const roleIdRegex = /<@&(\d+)>/g;
+    const matches = message.match(roleIdRegex);
+    return matches ? matches.map((match) => match.slice(3, -1)) : [];
   }
-  /**
-   * Handles interactions with the bot
-   * @param interaction - The interaction object from Discord
-   */
+
   public async handleInteraction(interaction: Interaction) {
     if (interaction.isCommand() && interaction.commandName === "postcheckin") {
       const season = interaction.options.getNumber("season");
@@ -115,14 +110,13 @@ class SlashCommands {
       const timezone = interaction.options.getString("timezone");
       const track = interaction.options.getString("track") as keyof typeof Tracks;
       const trackMap = interaction.options.getAttachment("track_map");
+
       await interaction.reply({
-        content:
-          `Setting up check-in. Plese provide the channels you would like the event posted in.`,
+        content: "Setting up check-in. Please provide the channels for the event.",
         ephemeral: true,
       });
 
-      const filter = (response: Message) =>
-        response.author.id === interaction.user.id;
+      const filter = (response: Message) => response.author.id === interaction.user.id;
       const channelCollector = interaction.channel?.createMessageCollector({
         filter,
         max: 1,
@@ -130,7 +124,6 @@ class SlashCommands {
       });
 
       channelCollector?.on("collect", async (message: Message) => {
-        console.log("Collected message:", message.content);
         const channelIds = this.extractChannelIds(message.content);
         if (channelIds.length === 0) {
           await interaction.followUp({
@@ -139,14 +132,12 @@ class SlashCommands {
           });
           return;
         }
-        // Ask the user to list the roles for check-in
+
         await interaction.followUp({
-          content:
-            `Channels set. Now, please list the roles you would like to be mentioned in the check-in`,
+          content: "Channels set. Now, please list the roles for check-in notifications.",
           ephemeral: true,
         });
 
-        // Collect the role response from the user
         const roleCollector = interaction.channel?.createMessageCollector({
           filter,
           max: 1,
@@ -162,30 +153,33 @@ class SlashCommands {
             });
             return;
           }
+
           const serverName = interaction.guild?.name || "Unknown Server";
           const checkInOptions: CheckInOptions = {
-            season: season,
-            round: round,
-            date_time: dateTime,
-            timezone: timezone,
+            season: season!,
+            round: round!,
+            date_time: dateTime!,
+            timezone: timezone!,
             track: Tracks[track],
-            trackMap: trackMap,
+            trackMap: trackMap || null,
             channels: channelIds,
             roles: roleIds,
-            serverName: serverName,
+            serverName,
           };
+
           this.sendCheckInMessage(checkInOptions);
-          // Here you can proceed with the collected channelIds and roleIds
-          
-
-
         });
-        roleCollector?.on('end', (_, reason) => {
-          if (reason === 'time') {
-            interaction.followUp({ content: 'Role selection timed out. Please start over.', ephemeral: true });
+
+        roleCollector?.on("end", (_, reason) => {
+          if (reason === "time") {
+            interaction.followUp({
+              content: "Role selection timed out. Please start over.",
+              ephemeral: true,
+            });
           }
         });
       });
+
       channelCollector?.on("end", (_, reason) => {
         if (reason === "time") {
           interaction.followUp({
@@ -197,4 +191,5 @@ class SlashCommands {
     }
   }
 }
-export default SlashCommands; // Exporting the class as default
+
+export default SlashCommands;
