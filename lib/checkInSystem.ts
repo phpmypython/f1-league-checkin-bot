@@ -5,6 +5,7 @@ import {
   ButtonStyle,
   EmbedBuilder,
   TextChannel,
+  GuildMember,
 } from "discord.js";
 import db from "./db.ts"; // Import the SQLite database connection
 import { CheckInOptions } from "../types/checkIn.ts";
@@ -74,25 +75,20 @@ export default class CheckInSystem {
   }
 
   // Store or update check-in status
-  public saveCheckInStatus(uniqueId: string, team: string, members: string[]) {
-    db.query(
-      `
+  public saveCheckInStatus(uniqueId: string, team: string, members: { userId: string, nickname: string }[]) {
+    db.query(`
       INSERT OR REPLACE INTO check_in_statuses (unique_id, team, members)
       VALUES (?, ?, ?)
-    `,
-      [uniqueId, team, JSON.stringify(members)],
-    );
+    `, [uniqueId, team, JSON.stringify(members)]);
   }
-
   // Retrieve check-in status for a specific event
-  private getCheckInStatus(uniqueId: string): Map<string, string[]> {
+  public getCheckInStatus(uniqueId: string): Map<string, { userId: string, nickname: string }[]> {
     const statuses = db.query("SELECT team, members FROM check_in_statuses WHERE unique_id = ?", [uniqueId]);
-    const statusMap = new Map<string, string[]>();
-
+    const statusMap = new Map<string, { userId: string, nickname: string }[]>();
+  
     for (const [team, members] of statuses) {
       statusMap.set(team as string, JSON.parse(members as string));
     }
-
     return statusMap;
   }
   private createEventTimeField(checkInOptions: CheckInOptions) {
@@ -112,19 +108,17 @@ export default class CheckInSystem {
     }
   }
 
-  private createConstructorFields(checkInStatus: Map<string, string[]>): any[] {
-    // Add fields for each team showing checked-in members
+  private createConstructorFields(checkInStatus: Map<string, { userId: string, nickname: string }[]>): any[] {
     const fields = [];
     for (const [team, { emoji, displayName }] of Object.entries(Constructors)) {
-      const members = checkInStatus.get(team) || [];  // Retrieve members or set to empty if none
-      const memberCount = members.length; // Count of members checked in
+      const members = checkInStatus.get(team) || [];
       const formattedMembers = members.length > 0
-      ? members.map((member) => `> ${member}`).join("\n")  // Each member on a new line with "> "
-      : "-";
+        ? members.map((member) => `> ${member.nickname}`).join("\n") // Display nickname on each line
+        : "-";
       fields.push({
-        name: `${emoji} ${displayName} (${memberCount})`, // Team name with emoji and member count
-        value: formattedMembers, // Show members or placeholder "-"
-        inline: true
+        name: `${emoji} ${displayName} (${members.length})`, // Display member count
+        value: formattedMembers,
+        inline: true,
       });
     }
     return fields;
@@ -192,41 +186,38 @@ export default class CheckInSystem {
 
 // Update check-in status and embed on interaction
 public async handleCheckIn(interaction: ButtonInteraction, uniqueId: string) {
-  const user = interaction.user.username;
+  const userId = interaction.user.id;
   const team = interaction.customId.split("_")[0];
+  const guildMember = await interaction.guild?.members.fetch(userId);
+  const nickname = guildMember?.nickname || interaction.user.username; // Use nickname if available, else username
 
-  // Retrieve the current check-in status for the event and the team
+  // Retrieve current check-in status and modify member list
   const statusMap = this.getCheckInStatus(uniqueId);
   const currentMembers = statusMap.get(team) || [];
 
-  // Toggle the user's check-in status
   let updatedMembers;
-  if (currentMembers.includes(user)) {
-    // Remove user if they are already in the list
-    updatedMembers = currentMembers.filter((member) => member !== user);
+  const isCheckedIn = currentMembers.some((member) => member.userId === userId);
+
+  if (isCheckedIn) {
+    // Remove user if already checked in
+    updatedMembers = currentMembers.filter((member) => member.userId !== userId);
   } else {
-    // Add user if they are not in the list
-    updatedMembers = [...currentMembers, user];
+    // Add user if not already checked in
+    updatedMembers = [...currentMembers, { userId, nickname }];
   }
 
-  // Update the status map with the modified member list
+  // Update the status map and save to database
   statusMap.set(team, updatedMembers);
-
-  // Save the updated check-in status back to the database
   await this.saveCheckInStatus(uniqueId, team, updatedMembers);
 
-  // Rebuild the fields to reflect the new check-in status
+  // Rebuild fields with updated nickname display
   const eventOptions = this.getEvent(uniqueId) as CheckInOptions;
   const fields = [this.createEventTimeField(eventOptions), ...this.createConstructorFields(statusMap)];
 
-  // Update the embed with the modified fields
   const embed = interaction.message.embeds[0];
   const updatedEmbed = new EmbedBuilder(embed).setFields(fields);
-
-  // Update the interaction message with the modified embed
   await interaction.update({ embeds: [updatedEmbed] });
 }
-
   private async defaultTrackMap(track: string) {
     // Logic to return a default track map based on the track name
     return `https://www.formula1.com/content/dam/fom-website/2018-redesign-assets/Circuit%20maps%2016x9/${track}`;
