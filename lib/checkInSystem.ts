@@ -10,6 +10,7 @@ import {
 import db from "./db.ts"; // Import the SQLite database connection
 import { CheckInOptions } from "../types/checkIn.ts";
 import { Constructors } from "../types/constructors.ts";
+import {DateTime} from "luxon";
 
 export default class CheckInSystem {
   private client: Client;
@@ -17,6 +18,7 @@ export default class CheckInSystem {
   constructor(client: Client) {
     this.client = client;
   }
+
 
   // Save event to the database
   public saveEvent(options: CheckInOptions, uniqueId: string) {
@@ -94,8 +96,12 @@ export default class CheckInSystem {
   private createEventTimeField(checkInOptions: CheckInOptions) {
     try {
       const { date_time, timezone } = checkInOptions;
-      const date = new Date(date_time + " " + timezone);
-      const unixTimestamp = Math.floor(date.getTime() / 1000);
+      
+      // Parse the date in the correct timezone
+      const date = DateTime.fromFormat(date_time, "yyyy-MM-dd h:mm a", { zone: timezone });
+      
+      // Convert to UNIX timestamp
+      const unixTimestamp = Math.floor(date.toSeconds());
       return {
         name: "Event Time",
         value: `<t:${unixTimestamp}:F> 

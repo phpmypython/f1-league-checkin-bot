@@ -56,10 +56,10 @@ class SlashCommands {
           .setDescription("Timezone of the event")
           .setRequired(true)
           .addChoices(
-            { name: "Eastern", value: "EST" },
-            { name: "Central", value: "CST" },
-            { name: "Mountain", value: "MST" },
-            { name: "Pacific", value: "PST" },
+            { name: "Eastern", value: "America/Kentucky/Louisville" },
+            { name: "Central", value: "America/Chicago" },
+            { name: "Mountain", value: "America/Denver" },
+            { name: "Pacific", value: "America/Los_Angeles" },
           )
       )
       .addStringOption((option) =>
