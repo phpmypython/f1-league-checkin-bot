@@ -35,6 +35,7 @@ db.execute(`
   CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id TEXT PRIMARY KEY,
     notification_channel_id TEXT,
+    manager_role_id TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
@@ -73,6 +74,14 @@ try {
 } catch {
   console.log("Adding is_special column to roster_teams table...");
   db.execute("ALTER TABLE roster_teams ADD COLUMN is_special BOOLEAN DEFAULT 0");
+}
+
+// Migration: Add manager_role_id column if it doesn't exist
+try {
+  db.query("SELECT manager_role_id FROM guild_settings LIMIT 1");
+} catch {
+  console.log("Adding manager_role_id column to guild_settings table...");
+  db.execute("ALTER TABLE guild_settings ADD COLUMN manager_role_id TEXT");
 }
 
 export default db;

@@ -2,6 +2,7 @@ import { Client, GatewayIntentBits, Partials, Interaction } from "discord.js";
 import SlashCommands from "./lib/slashCommands.ts";
 import CheckInSystem from "./lib/checkInSystem.ts";
 import { RosterCommands } from "./lib/rosterCommands.ts";
+import PermissionSystem from "./lib/permissionSystem.ts";
 import process from "node:process";
 
 if (!process.env.BOT_TOKEN) {
@@ -24,6 +25,7 @@ const bot = new Client({
 
 // Initialize CheckInSystem and pass the client instance
 const checkInSystem = new CheckInSystem(bot);
+const permissionSystem = new PermissionSystem(bot);
 let rosterCommands: RosterCommands;
 
 bot.on("ready", async () => {

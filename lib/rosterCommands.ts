@@ -7,12 +7,15 @@ import {
   Attachment
 } from "discord.js";
 import { RosterSystem } from "./rosterSystem.ts";
+import PermissionSystem from "./permissionSystem.ts";
 
 export class RosterCommands {
   private rosterSystem: RosterSystem;
+  private permissionSystem: PermissionSystem;
 
   constructor(client: Client, guildIds: string[]) {
     this.rosterSystem = new RosterSystem(client);
+    this.permissionSystem = new PermissionSystem(client);
     this.registerCommands(client, guildIds);
   }
 
@@ -186,6 +189,10 @@ export class RosterCommands {
       });
       return;
     }
+
+    // Check permissions
+    const hasPermission = await this.permissionSystem.checkPermission(interaction);
+    if (!hasPermission) return;
 
     switch (interaction.commandName) {
       case "createroster":

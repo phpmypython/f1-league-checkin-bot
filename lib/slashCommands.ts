@@ -10,6 +10,7 @@ import {
   ActionRowBuilder,
   ComponentType,
   ChannelType,
+  GuildMember,
 } from "discord.js";
 import { Tracks } from "../types/tracks.ts";
 import process from "node:process";
@@ -17,15 +18,18 @@ import { CheckInOptions } from "../types/checkIn.ts";
 import CheckInSystem from "./checkInSystem.ts";
 import { v4 as uuidv4 } from "uuid"; // Import UUID to generate unique event IDs
 import NotificationSystem from "./notificationSystem.ts";
+import PermissionSystem from "./permissionSystem.ts";
 
 class SlashCommands {
   private client: Client;
   public trackChoices: { name: string; value: string }[];
   private notificationSystem: NotificationSystem;
+  private permissionSystem: PermissionSystem;
 
   constructor(client: Client, GuildIds: string[], private checkInSystem: CheckInSystem) {
     this.client = client;
     this.notificationSystem = new NotificationSystem(client);
+    this.permissionSystem = new PermissionSystem(client);
 
     this.trackChoices = Object.values(Tracks).map((track) => ({
       name: track.displayName,
@@ -100,11 +104,22 @@ class SlashCommands {
           .setRequired(true)
       );
 
+    const setManagerRoleCommand = new SlashCommandBuilder()
+      .setName("setmanagerole")
+      .setDescription("Set the role required to manage the bot (Admin only)")
+      .addRoleOption((option) =>
+        option
+          .setName("role")
+          .setDescription("The role that can use bot commands (leave empty to allow all)")
+          .setRequired(false)
+      );
+
     for (const guildId of GuildIds) {
       const guild = this.client.guilds.cache.get(guildId);
       guild?.commands.create(postCheckInCommand.toJSON());
       guild?.commands.create(setCheckinChannelCommand.toJSON());
-      console.log("Commands registered: /postcheckin, /setcheckinchannel");
+      guild?.commands.create(setManagerRoleCommand.toJSON());
+      console.log("Commands registered: /postcheckin, /setcheckinchannel, /setmanagerole");
     }
   }
 
@@ -118,6 +133,49 @@ class SlashCommands {
 
   public async handleInteraction(interaction: Interaction) {
     if (interaction.isCommand()) {
+      // Handle setmanagerole without permission check (admin only)
+      if (interaction.commandName === "setmanagerole") {
+        const member = interaction.member as GuildMember;
+        
+        // Only admins can set the manager role
+        if (!member.permissions.has('Administrator') && interaction.guild?.ownerId !== member.id) {
+          await interaction.reply({
+            content: "❌ Only administrators can set the manager role.",
+            ephemeral: true
+          });
+          return;
+        }
+
+        const role = interaction.options.getRole("role");
+        
+        try {
+          await this.permissionSystem.setManagerRole(interaction.guild!.id, role?.id || null);
+          
+          if (role) {
+            await interaction.reply({
+              content: `✅ Manager role set to <@&${role.id}>. Only users with this role can use bot commands.`,
+              ephemeral: true
+            });
+          } else {
+            await interaction.reply({
+              content: "✅ Manager role requirement removed. All users can now use bot commands.",
+              ephemeral: true
+            });
+          }
+        } catch (error) {
+          console.error("Error setting manager role:", error);
+          await interaction.reply({
+            content: "❌ Failed to set manager role. Please try again.",
+            ephemeral: true
+          });
+        }
+        return;
+      }
+
+      // Check permissions for all other commands
+      const hasPermission = await this.permissionSystem.checkPermission(interaction);
+      if (!hasPermission) return;
+
       if (interaction.commandName === "postcheckin") {
       const season = interaction.options.getNumber("season");
       const round = interaction.options.getNumber("round");
