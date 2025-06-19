@@ -1,4 +1,4 @@
-import { Client, TextChannel } from "discord.js";
+import { Client, TextChannel, EmbedBuilder } from "discord.js";
 import db from "./db.ts";
 import { Constructors } from "../types/constructors.ts";
 
@@ -58,8 +58,9 @@ class NotificationSystem {
     userId: string,
     userNickname: string,
     team: string,
-    action: "checked-in" | "checked-out",
-    eventDetails: { season: number; round: number; track: string }
+    action: "checked-in" | "checked-out" | "updated-status",
+    eventDetails: { season: number; round: number; track: string },
+    sourceChannelId: string
   ): Promise<void> {
     try {
       const channelId = await this.getNotificationChannel(guildId);
@@ -68,15 +69,33 @@ class NotificationSystem {
       const channel = this.client.channels.cache.get(channelId) as TextChannel;
       if (!channel) return;
 
-      const emoji = action === "checked-in" ? "✅" : "❌";
+      const statusEmoji = action === "checked-in" ? "✅" : action === "checked-out" ? "❌" : "🔄";
+      const embedColor = action === "checked-in" ? 0x00ff00 : action === "checked-out" ? 0xff0000 : 0x808080;
       const timestamp = Math.floor(Date.now() / 1000);
       
-      // Get the team emoji from Constructors
-      const teamEmoji = Constructors[team as keyof typeof Constructors]?.emoji || team;
+      // Get the team constructor info
+      const teamConstructor = Constructors[team as keyof typeof Constructors];
+      const teamEmoji = teamConstructor?.emoji || "";
+      const teamName = teamConstructor?.displayName || team;
 
-      const message = `${emoji} **${userNickname}** ${action} to ${teamEmoji} for Season ${eventDetails.season}, Round ${eventDetails.round} at ${eventDetails.track} <t:${timestamp}:R>`;
+      // Create a clean embed for the notification
+      const embed = new EmbedBuilder()
+        .setColor(embedColor)
+        .setAuthor({
+          name: `${userNickname} ${action}`,
+          iconURL: `https://cdn.discordapp.com/embed/avatars/${userId.charCodeAt(0) % 5}.png`
+        })
+        .addFields(
+          { name: "Team", value: `${teamEmoji} ${teamName}`, inline: true },
+          { name: "Event", value: `Season ${eventDetails.season}, Round ${eventDetails.round}`, inline: true },
+          { name: "Track", value: eventDetails.track, inline: true },
+          { name: "Channel", value: `<#${sourceChannelId}>`, inline: true },
+          { name: "Time", value: `<t:${timestamp}:R>`, inline: true },
+          { name: "Status", value: `${statusEmoji} ${action}`, inline: true }
+        )
+        .setTimestamp();
 
-      await channel.send(message);
+      await channel.send({ embeds: [embed] });
     } catch (error) {
       console.error("Error sending check-in notification:", error);
     }

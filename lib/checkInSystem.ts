@@ -223,7 +223,15 @@ public async handleCheckIn(interaction: ButtonInteraction, uniqueId: string) {
 
   // Send notification about the check-in/out
   const eventOptions = this.getEvent(uniqueId) as CheckInOptions;
-  const action = isCheckedIn ? "checked-out" : "checked-in";
+  // Determine the action based on current state and team
+  let action: "checked-in" | "checked-out" | "updated-status";
+  if (team === "decline") {
+    // For decline: adding = checked-out, removing = updated-status
+    action = isCheckedIn ? "updated-status" : "checked-out";
+  } else {
+    // For regular teams: adding = checked-in, removing = checked-out
+    action = isCheckedIn ? "checked-out" : "checked-in";
+  }
   const guildId = interaction.guild?.id;
   
   if (guildId && eventOptions) {
@@ -237,7 +245,8 @@ public async handleCheckIn(interaction: ButtonInteraction, uniqueId: string) {
         season: eventOptions.season,
         round: eventOptions.round,
         track: eventOptions.track.displayName
-      }
+      },
+      interaction.channel?.id || ""
     );
   }
 
