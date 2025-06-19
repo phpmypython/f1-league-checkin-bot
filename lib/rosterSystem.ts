@@ -117,7 +117,7 @@ export class RosterSystem {
       
       // Use a field instead of description for better mobile compatibility
       embed.addFields({
-        name: 'Drivers',
+        name: team.is_special ? '\u200B' : 'Drivers', // No label for special teams
         value: memberList,
         inline: false
       });
