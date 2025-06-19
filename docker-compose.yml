@@ -4,6 +4,7 @@ x-build:
     DENO_PLATFORM: "linux/amd64"
 services:
   web:
+    platform: linux/amd64
     build: .
     container_name: league-checkin-bot
     image: deno-image
