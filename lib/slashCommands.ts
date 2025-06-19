@@ -6,6 +6,10 @@ import {
   Interaction,
   Message,
   TextChannel,
+  StringSelectMenuBuilder,
+  ActionRowBuilder,
+  ComponentType,
+  ChannelType,
 } from "discord.js";
 import { Tracks } from "../types/tracks.ts";
 import process from "node:process";
@@ -72,6 +76,13 @@ class SlashCommands {
           .setRequired(true)
           .addChoices(...this.trackChoices)
       )
+      .addChannelOption((option) =>
+        option
+          .setName("channel")
+          .setDescription("Primary channel for the check-in")
+          .setRequired(true)
+          .addChannelTypes(0) // GuildText
+      )
       .addAttachmentOption((option) =>
         option
           .setName("track_map")
@@ -104,17 +115,6 @@ class SlashCommands {
     await this.checkInSystem.createEventEmbed(checkInOptions, uniqueId);
   }
 
-  private extractChannelIds(message: string): string[] {
-    const channelIdRegex = /<#(\d+)>/g;
-    const matches = message.match(channelIdRegex);
-    return matches ? matches.map((match) => match.slice(2, -1)) : [];
-  }
-
-  private extractRoleIds(message: string): string[] {
-    const roleIdRegex = /<@&(\d+)>/g;
-    const matches = message.match(roleIdRegex);
-    return matches ? matches.map((match) => match.slice(3, -1)) : [];
-  }
 
   public async handleInteraction(interaction: Interaction) {
     if (interaction.isCommand()) {
@@ -125,82 +125,95 @@ class SlashCommands {
       const timezone = interaction.options.getString("timezone");
       const track = interaction.options.getString("track") as keyof typeof Tracks;
       const trackMap = interaction.options.getAttachment("track_map");
+      const primaryChannel = interaction.options.getChannel("channel");
 
       await interaction.deferReply({ ephemeral: true });
-      await interaction.followUp({
-        content: "Setting up check-in. Please provide the channels for the event.",
+
+      // Add roles as options (exclude @everyone and bot roles)
+      const roles = Array.from(
+        interaction.guild?.roles.cache
+          .filter(role => !role.managed && role.id !== interaction.guild?.id)
+          .values() || []
+      )
+        .sort((a, b) => b.position - a.position)
+        .slice(0, 25); // Discord limit
+
+      // Create role select menu
+      const roleSelect = new StringSelectMenuBuilder()
+        .setCustomId('role-select')
+        .setPlaceholder('Select roles to notify (required)')
+        .setMinValues(1)
+        .setMaxValues(Math.min(roles.length, 10)); // Can't be more than available options
+
+      if (roles.length === 0) {
+        await interaction.editReply({
+          content: '❌ No valid roles found in this server. Please create some roles first.',
+        });
+        return;
+      }
+
+      // First, let's ensure members are fetched
+      await interaction.guild?.members.fetch();
+
+      roles.forEach(role => {
+        // Ensure we have valid strings
+        const label = role.name || 'Unnamed Role';
+        const memberCount = role.members?.size || 0;
+        const description = `${memberCount} member${memberCount !== 1 ? 's' : ''}`;
+        
+        roleSelect.addOptions({
+          label: label.substring(0, 100), // Discord limit
+          value: role.id,
+          description: description.substring(0, 100)
+        });
+      });
+
+      const roleRow = new ActionRowBuilder<StringSelectMenuBuilder>()
+        .addComponents(roleSelect);
+
+      const roleMessage = await interaction.followUp({
+        content: `Channel: <#${primaryChannel?.id}>\n\nSelect the roles to notify:`,
+        components: [roleRow],
         ephemeral: true,
       });
 
-      const filter = (response: Message) => response.author.id === interaction.user.id;
-      const channelCollector = interaction.channel?.createMessageCollector({
-        filter,
-        max: 1,
+      const roleCollector = roleMessage.createMessageComponentCollector({
+        componentType: ComponentType.StringSelect,
         time: 30000,
       });
 
-      channelCollector?.on("collect", async (message: Message) => {
-        const channelIds = this.extractChannelIds(message.content);
-        if (channelIds.length === 0) {
-          await interaction.followUp({
-            content: "No valid channels found. Please try again.",
-            ephemeral: true,
-          });
-          return;
-        }
+      roleCollector.on('collect', async (roleInteraction) => {
+        const roleIds = roleInteraction.values;
 
-        await interaction.followUp({
-          content: "Channels set. Now, please list the roles for check-in notifications.",
-          ephemeral: true,
+        await roleInteraction.deferUpdate();
+
+        const serverName = interaction.guild?.name || "Unknown Server";
+        const checkInOptions: CheckInOptions = {
+          season: season!,
+          round: round!,
+          date_time: dateTime!,
+          timezone: timezone!,
+          track: Tracks[track],
+          trackMap: trackMap || null,
+          channels: [primaryChannel!.id],
+          roles: roleIds,
+          serverName,
+        };
+
+        await interaction.editReply({
+          content: `✅ Check-in created!\n\n**Channel:** <#${primaryChannel?.id}>\n**Roles:** ${roleIds.map(id => `<@&${id}>`).join(', ')}`,
+          components: [],
         });
 
-        const roleCollector = interaction.channel?.createMessageCollector({
-          filter,
-          max: 1,
-          time: 30000,
-        });
-
-        roleCollector?.on("collect", async (roleMessage: Message) => {
-          const roleIds = this.extractRoleIds(roleMessage.content);
-          if (roleIds.length === 0) {
-            await interaction.followUp({
-              content: "No valid roles found. Please try again.",
-              ephemeral: true,
-            });
-            return;
-          }
-
-          const serverName = interaction.guild?.name || "Unknown Server";
-          const checkInOptions: CheckInOptions = {
-            season: season!,
-            round: round!,
-            date_time: dateTime!,
-            timezone: timezone!,
-            track: Tracks[track],
-            trackMap: trackMap || null,
-            channels: channelIds,
-            roles: roleIds,
-            serverName,
-          };
-
-          this.sendCheckInMessage(checkInOptions);
-        });
-
-        roleCollector?.on("end", (_, reason) => {
-          if (reason === "time") {
-            interaction.followUp({
-              content: "Role selection timed out. Please start over.",
-              ephemeral: true,
-            });
-          }
-        });
+        this.sendCheckInMessage(checkInOptions);
+        roleCollector.stop();
       });
 
-      channelCollector?.on("end", (_, reason) => {
-        if (reason === "time") {
-          interaction.followUp({
-            content: "Channel selection timed out. Please start over.",
-            ephemeral: true,
+      roleCollector.on('end', (_, reason) => {
+        if (reason === 'time') {
+          interaction.editReply({
+            content: 'Role selection timed out. Please start over.',
+            components: [],
           });
         }
       });
