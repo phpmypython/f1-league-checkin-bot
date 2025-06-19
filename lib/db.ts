@@ -31,4 +31,13 @@ db.execute(`
     );
   `);
 
+db.execute(`
+  CREATE TABLE IF NOT EXISTS guild_settings (
+    guild_id TEXT PRIMARY KEY,
+    notification_channel_id TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
 export default db;

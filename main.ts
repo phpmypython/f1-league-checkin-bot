@@ -37,7 +37,7 @@ bot.on("ready", async () => {
   bot.on("interactionCreate", async (interaction: Interaction) => {
     if (interaction.isButton()) {
       const [team, uniqueId] = interaction.customId.split("_");
-  
+
       // Retrieve the event and check-in status from SQLite if available
       const eventOptions = checkInSystem.getEvent(uniqueId);
       if (!eventOptions) {
@@ -47,7 +47,7 @@ bot.on("ready", async () => {
         });
         return;
       }
-  
+
       // Process check-in interaction with CheckInSystem
       await checkInSystem.handleCheckIn(interaction, uniqueId);
     } else if (interaction.isCommand()) {

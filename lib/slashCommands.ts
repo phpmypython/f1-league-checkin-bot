@@ -12,13 +12,16 @@ import process from "node:process";
 import { CheckInOptions } from "../types/checkIn.ts";
 import CheckInSystem from "./checkInSystem.ts";
 import { v4 as uuidv4 } from "uuid"; // Import UUID to generate unique event IDs
+import NotificationSystem from "./notificationSystem.ts";
 
 class SlashCommands {
   private client: Client;
   public trackChoices: { name: string; value: string }[];
+  private notificationSystem: NotificationSystem;
 
   constructor(client: Client, GuildIds: string[], private checkInSystem: CheckInSystem) {
     this.client = client;
+    this.notificationSystem = new NotificationSystem(client);
 
     this.trackChoices = Object.values(Tracks).map((track) => ({
       name: track.displayName,
@@ -29,7 +32,7 @@ class SlashCommands {
   }
 
   private registerCommands(GuildIds: string[]) {
-    const command = new SlashCommandBuilder()
+    const postCheckInCommand = new SlashCommandBuilder()
       .setName("postcheckin")
       .setDescription("Posts a check-in for an event")
       .addNumberOption((option) =>
@@ -76,10 +79,21 @@ class SlashCommands {
           .setRequired(false)
       );
 
+    const setCheckinChannelCommand = new SlashCommandBuilder()
+      .setName("setcheckinchannel")
+      .setDescription("Set the channel for check-in/out notifications")
+      .addChannelOption((option) =>
+        option
+          .setName("channel")
+          .setDescription("The channel to send check-in/out notifications to")
+          .setRequired(true)
+      );
+
     for (const guildId of GuildIds) {
       const guild = this.client.guilds.cache.get(guildId);
-      guild?.commands.create(command.toJSON());
-      console.log("Command registered: /postcheckin");
+      guild?.commands.create(postCheckInCommand.toJSON());
+      guild?.commands.create(setCheckinChannelCommand.toJSON());
+      console.log("Commands registered: /postcheckin, /setcheckinchannel");
     }
   }
 
@@ -103,7 +117,8 @@ class SlashCommands {
   }
 
   public async handleInteraction(interaction: Interaction) {
-    if (interaction.isCommand() && interaction.commandName === "postcheckin") {
+    if (interaction.isCommand()) {
+      if (interaction.commandName === "postcheckin") {
       const season = interaction.options.getNumber("season");
       const round = interaction.options.getNumber("round");
       const dateTime = interaction.options.getString("date_time");
@@ -111,7 +126,8 @@ class SlashCommands {
       const track = interaction.options.getString("track") as keyof typeof Tracks;
       const trackMap = interaction.options.getAttachment("track_map");
 
-      await interaction.reply({
+      await interaction.deferReply({ ephemeral: true });
+      await interaction.followUp({
         content: "Setting up check-in. Please provide the channels for the event.",
         ephemeral: true,
       });
@@ -188,6 +204,39 @@ class SlashCommands {
           });
         }
       });
+      } else if (interaction.commandName === "setcheckinchannel") {
+        const channel = interaction.options.getChannel("channel");
+        
+        if (!channel || channel.type !== 0) { // 0 is GUILD_TEXT
+          await interaction.reply({
+            content: "Please select a valid text channel.",
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const guildId = interaction.guild?.id;
+        if (!guildId) {
+          await interaction.reply({
+            content: "This command can only be used in a server.",
+            ephemeral: true,
+          });
+          return;
+        }
+
+        try {
+          await this.notificationSystem.setNotificationChannel(guildId, channel.id);
+          await interaction.reply({
+            content: `Check-in notifications will now be sent to <#${channel.id}>`,
+            ephemeral: true,
+          });
+        } catch (error) {
+          await interaction.reply({
+            content: "Failed to set notification channel. Please try again.",
+            ephemeral: true,
+          });
+        }
+      }
     }
   }
 }

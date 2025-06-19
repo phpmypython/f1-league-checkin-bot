@@ -6,17 +6,22 @@ import {
   EmbedBuilder,
   TextChannel,
   GuildMember,
+  Client,
+  ButtonInteraction,
 } from "discord.js";
 import db from "./db.ts"; // Import the SQLite database connection
 import { CheckInOptions } from "../types/checkIn.ts";
 import { Constructors } from "../types/constructors.ts";
 import {DateTime} from "luxon";
+import NotificationSystem from "./notificationSystem.ts";
 
 export default class CheckInSystem {
   private client: Client;
+  private notificationSystem: NotificationSystem;
 
   constructor(client: Client) {
     this.client = client;
+    this.notificationSystem = new NotificationSystem(client);
   }
 
 
@@ -216,8 +221,27 @@ public async handleCheckIn(interaction: ButtonInteraction, uniqueId: string) {
   statusMap.set(team, updatedMembers);
   await this.saveCheckInStatus(uniqueId, team, updatedMembers);
 
-  // Rebuild fields with updated nickname display
+  // Send notification about the check-in/out
   const eventOptions = this.getEvent(uniqueId) as CheckInOptions;
+  const action = isCheckedIn ? "checked-out" : "checked-in";
+  const guildId = interaction.guild?.id;
+  
+  if (guildId && eventOptions) {
+    await this.notificationSystem.sendCheckInNotification(
+      guildId,
+      userId,
+      nickname,
+      team,
+      action,
+      {
+        season: eventOptions.season,
+        round: eventOptions.round,
+        track: eventOptions.track.displayName
+      }
+    );
+  }
+
+  // Rebuild fields with updated nickname display
   const fields = [this.createEventTimeField(eventOptions), ...this.createConstructorFields(statusMap)];
 
   const embed = interaction.message.embeds[0];
