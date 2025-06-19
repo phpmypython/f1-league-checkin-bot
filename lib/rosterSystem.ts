@@ -110,12 +110,17 @@ export class RosterSystem {
     
     // Build member list with proper formatting
     if (members.length > 0) {
-      // Create member list as simple list
+      // Create member list
       const memberList = members.map((member: GuildMember) => {
         return `<@${member.id}>`;
       }).join(' & ');
       
-      embed.setDescription(`### ${memberList}`);
+      // Use a field instead of description for better mobile compatibility
+      embed.addFields({
+        name: 'Drivers',
+        value: memberList,
+        inline: false
+      });
     } else {
       embed.setDescription(team.is_special ? "*Not assigned*" : "*No drivers currently assigned to this team*");
     }
