@@ -1,6 +1,7 @@
 import { Client, GatewayIntentBits, Partials, Interaction } from "discord.js";
 import SlashCommands from "./lib/slashCommands.ts";
 import CheckInSystem from "./lib/checkInSystem.ts";
+import { RosterCommands } from "./lib/rosterCommands.ts";
 import process from "node:process";
 
 if (!process.env.BOT_TOKEN) {
@@ -23,6 +24,7 @@ const bot = new Client({
 
 // Initialize CheckInSystem and pass the client instance
 const checkInSystem = new CheckInSystem(bot);
+let rosterCommands: RosterCommands;
 
 bot.on("ready", async () => {
   console.log(`Bot is ready! Logged in as ${bot.user?.tag}`);
@@ -34,6 +36,8 @@ bot.on("ready", async () => {
   // Register slash commands and pass CheckInSystem for persistent event handling
   const guildIds = bot.guilds.cache.map((guild) => guild.id);
   const slashCommands = new SlashCommands(bot, guildIds, checkInSystem);
+  rosterCommands = new RosterCommands(bot, guildIds);
+  
   bot.on("interactionCreate", async (interaction: Interaction) => {
     if (interaction.isButton()) {
       const [team, uniqueId] = interaction.customId.split("_");
@@ -51,11 +55,36 @@ bot.on("ready", async () => {
       // Process check-in interaction with CheckInSystem
       await checkInSystem.handleCheckIn(interaction, uniqueId);
     } else if (interaction.isCommand()) {
-      // Handle slash command interactions using SlashCommands
-      // const guildIds = bot.guilds.cache.map((guild) => guild.id);
-      await slashCommands.handleInteraction(interaction);
+      // Handle slash command interactions
+      const rosterCommandNames = ["createroster", "addteam", "updateteam", "deleteroster", "deleteteam", "refreshroster", "reorderroster"];
+      if (rosterCommandNames.includes(interaction.commandName)) {
+        await rosterCommands.handleInteraction(interaction);
+      } else {
+        await slashCommands.handleInteraction(interaction);
+      }
+    } else if (interaction.isAutocomplete()) {
+      await rosterCommands.handleAutocomplete(interaction);
     }
   });
+});
+
+// Listen for role updates to auto-update rosters
+bot.on("guildMemberUpdate", async (oldMember, newMember) => {
+  // Check if roles changed
+  const oldRoles = oldMember.roles.cache;
+  const newRoles = newMember.roles.cache;
+  
+  const addedRoles = newRoles.filter(role => !oldRoles.has(role.id));
+  const removedRoles = oldRoles.filter(role => !newRoles.has(role.id));
+  
+  if (addedRoles.size > 0 || removedRoles.size > 0) {
+    const rosterSystem = rosterCommands.getRosterSystem();
+    
+    // Update for each affected role
+    for (const role of [...addedRoles.values(), ...removedRoles.values()]) {
+      await rosterSystem.updateTeamForRole(role.id);
+    }
+  }
 });
 
 // Handle interactions globally
