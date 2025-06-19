@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 denoland/deno
+FROM denoland/deno
 
 EXPOSE 8000
 # Dockerfile
@@ -16,6 +16,7 @@ ADD . /app
 
 RUN deno install --entrypoint main.ts
 
-VOLUME ["/app/data"]
+# Railway handles volumes through their dashboard, not Dockerfile
+# Removed VOLUME declaration for Railway compatibility
 
 CMD ["deno","task", "start"]
