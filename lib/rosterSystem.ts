@@ -110,13 +110,9 @@ export class RosterSystem {
     
     // Build member list with proper formatting
     if (members.length > 0) {
-      // Force fetch each member to ensure they're cached
-      const memberPromises = members.map((m: GuildMember) => guild.members.fetch(m.id).catch(() => m));
-      await Promise.all(memberPromises);
-      
-      // Create member list
+      // Create member list using display names (nicknames)
       const memberList = members.map((member: GuildMember) => {
-        return `<@${member.id}>`;
+        return `**${member.displayName}**`;
       }).join(' & ');
       
       // Use a field instead of description for better mobile compatibility
