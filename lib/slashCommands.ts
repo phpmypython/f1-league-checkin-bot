@@ -6,9 +6,6 @@ import {
   Interaction,
   Message,
   TextChannel,
-  StringSelectMenuBuilder,
-  ActionRowBuilder,
-  ComponentType,
   ChannelType,
   GuildMember,
 } from "discord.js";
@@ -86,6 +83,12 @@ class SlashCommands {
           .setDescription("Primary channel for the check-in")
           .setRequired(true)
           .addChannelTypes(0) // GuildText
+      )
+      .addStringOption((option) =>
+        option
+          .setName("roles")
+          .setDescription("Roles to notify (mention them: @role1 @role2)")
+          .setRequired(true)
       )
       .addAttachmentOption((option) =>
         option
@@ -184,99 +187,53 @@ class SlashCommands {
       const track = interaction.options.getString("track") as keyof typeof Tracks;
       const trackMap = interaction.options.getAttachment("track_map");
       const primaryChannel = interaction.options.getChannel("channel");
+      const rolesString = interaction.options.getString("roles");
 
       await interaction.deferReply({ ephemeral: true });
 
-      // Add roles as options (exclude @everyone and bot roles)
-      const roles = Array.from(
-        interaction.guild?.roles.cache
-          .filter(role => !role.managed && role.id !== interaction.guild?.id)
-          .values() || []
-      )
-        .sort((a, b) => b.position - a.position)
-        .slice(0, 25); // Discord limit
+      // Parse role mentions from the input string
+      const rolePattern = /<@&(\d+)>/g;
+      const roleMatches = rolesString?.matchAll(rolePattern);
+      const roleIds: string[] = [];
 
-      // Create role select menu
-      const roleSelect = new StringSelectMenuBuilder()
-        .setCustomId('role-select')
-        .setPlaceholder('Select roles to notify (required)')
-        .setMinValues(1)
-        .setMaxValues(Math.min(roles.length, 10)); // Can't be more than available options
+      if (roleMatches) {
+        for (const match of roleMatches) {
+          const roleId = match[1];
+          // Verify the role exists in the guild
+          const role = interaction.guild?.roles.cache.get(roleId);
+          if (role && !role.managed && role.id !== interaction.guild?.id) {
+            roleIds.push(roleId);
+          }
+        }
+      }
 
-      if (roles.length === 0) {
+      if (roleIds.length === 0) {
         await interaction.editReply({
-          content: '❌ No valid roles found in this server. Please create some roles first.',
+          content: '❌ No valid roles found. Please mention roles like: @role1 @role2',
         });
         return;
       }
 
-      // First, let's ensure members are fetched
-      await interaction.guild?.members.fetch();
+      const serverName = interaction.guild?.name || "Unknown Server";
+      const checkInOptions: CheckInOptions = {
+        season: season!,
+        round: round!,
+        date_time: dateTime!,
+        timezone: timezone!,
+        track: Tracks[track as keyof typeof Tracks],
+        trackMap: trackMap || null,
+        channels: [primaryChannel!.id],
+        roles: roleIds,
+        serverName,
+      };
 
-      roles.forEach(role => {
-        // Ensure we have valid strings
-        const label = role.name || 'Unnamed Role';
-        const memberCount = role.members?.size || 0;
-        const description = `${memberCount} member${memberCount !== 1 ? 's' : ''}`;
-        
-        roleSelect.addOptions({
-          label: label.substring(0, 100), // Discord limit
-          value: role.id,
-          description: description.substring(0, 100)
-        });
+      await interaction.editReply({
+        content: `✅ Check-in created!\n\n**Channel:** <#${primaryChannel?.id}>\n**Roles:** ${roleIds.map(id => `<@&${id}>`).join(', ')}`,
       });
 
-      const roleRow = new ActionRowBuilder<StringSelectMenuBuilder>()
-        .addComponents(roleSelect);
-
-      const roleMessage = await interaction.followUp({
-        content: `Channel: <#${primaryChannel?.id}>\n\nSelect the roles to notify:`,
-        components: [roleRow],
-        ephemeral: true,
-      });
-
-      const roleCollector = roleMessage.createMessageComponentCollector({
-        componentType: ComponentType.StringSelect,
-        time: 30000,
-      });
-
-      roleCollector.on('collect', async (roleInteraction) => {
-        const roleIds = roleInteraction.values;
-
-        await roleInteraction.deferUpdate();
-
-        const serverName = interaction.guild?.name || "Unknown Server";
-        const checkInOptions: CheckInOptions = {
-          season: season!,
-          round: round!,
-          date_time: dateTime!,
-          timezone: timezone!,
-          track: Tracks[track],
-          trackMap: trackMap || null,
-          channels: [primaryChannel!.id],
-          roles: roleIds,
-          serverName,
-        };
-
-        await interaction.editReply({
-          content: `✅ Check-in created!\n\n**Channel:** <#${primaryChannel?.id}>\n**Roles:** ${roleIds.map(id => `<@&${id}>`).join(', ')}`,
-          components: [],
-        });
-
-        this.sendCheckInMessage(checkInOptions);
-        roleCollector.stop();
-      });
-
-      roleCollector.on('end', (_, reason) => {
-        if (reason === 'time') {
-          interaction.editReply({
-            content: 'Role selection timed out. Please start over.',
-            components: [],
-          });
-        }
-      });
+      this.sendCheckInMessage(checkInOptions);
       } else if (interaction.commandName === "setcheckinchannel") {
-        const channel = interaction.options.getChannel("channel");
+        const channel = (interaction as ChatInputCommandInteraction).options.getChannel("channel");
         
         if (!channel || channel.type !== 0) { // 0 is GUILD_TEXT
           await interaction.reply({
