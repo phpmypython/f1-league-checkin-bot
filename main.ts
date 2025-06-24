@@ -106,7 +106,11 @@ serve(async (req) => {
   if (url.pathname.startsWith("/team_logos/")) {
     const filePath = `./assets${url.pathname}`;
     try {
-      return await serveFile(req, filePath);
+      const response = await serveFile(req, filePath);
+      // Ensure proper headers for images
+      response.headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
+      response.headers.set("Content-Type", "image/png");
+      return response;
     } catch {
       return new Response("Not found", { status: 404 });
     }

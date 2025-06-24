@@ -127,7 +127,17 @@ export class RosterSystem {
     
     // Use setImage for the team banner (it will appear at bottom)
     if (team.image_url) {
-      embed.setImage(team.image_url);
+      // Add cache busting parameter to force Discord to refetch the image
+      let imageUrlWithCacheBust = team.image_url;
+      
+      // Only add cache busting to non-Discord CDN URLs
+      if (!team.image_url.includes('cdn.discordapp.com')) {
+        const separator = team.image_url.includes('?') ? '&' : '?';
+        imageUrlWithCacheBust = `${team.image_url}${separator}v=${Date.now()}`;
+      }
+      
+      embed.setImage(imageUrlWithCacheBust);
+      console.log(`Setting embed image: ${imageUrlWithCacheBust}`);
     }
     
     // Add role mention at the bottom
@@ -195,6 +205,9 @@ export class RosterSystem {
       
       const message = await channel.messages.fetch(team.message_id);
       const embed = await this.createTeamEmbed(guild.id, team, role);
+      
+      console.log(`Updating team ${team.team_name} - Image URL in DB: ${team.image_url}`);
+      console.log("Full embed data:", JSON.stringify(embed.toJSON(), null, 2));
       
       await message.edit({ embeds: [embed] });
     } catch (error) {
