@@ -4,6 +4,8 @@ import CheckInSystem from "./lib/checkInSystem.ts";
 import { RosterCommands } from "./lib/rosterCommands.ts";
 import PermissionSystem from "./lib/permissionSystem.ts";
 import process from "node:process";
+import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
+import { serveFile } from "https://deno.land/std@0.208.0/http/file_server.ts";
 
 if (!process.env.BOT_TOKEN) {
   console.error("Please define the BOT_TOKEN environment variable");
@@ -94,3 +96,23 @@ bot.on("guildMemberUpdate", async (oldMember, newMember) => {
 
 // Log in the bot
 bot.login(token).catch((error) => console.error("Error logging in:", error));
+
+// Start HTTP server to serve team logos
+const PORT = parseInt(process.env.PORT || "8000");
+serve(async (req) => {
+  const url = new URL(req.url);
+  
+  // Only serve images from the assets/team_logos directory
+  if (url.pathname.startsWith("/team_logos/")) {
+    const filePath = `./assets${url.pathname}`;
+    try {
+      return await serveFile(req, filePath);
+    } catch {
+      return new Response("Not found", { status: 404 });
+    }
+  }
+  
+  return new Response("Discord Check-in Bot", { status: 200 });
+}, { port: PORT });
+
+console.log(`HTTP server running on port ${PORT}`);

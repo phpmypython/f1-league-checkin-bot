@@ -4,14 +4,10 @@ import {
   Client,
   ChannelType,
   Role,
-  Attachment,
-  AttachmentBuilder,
-  TextChannel
+  Attachment
 } from "discord.js";
 import { RosterSystem } from "./rosterSystem.ts";
 import PermissionSystem from "./permissionSystem.ts";
-import { join } from "node:path";
-import { homedir } from "node:os";
 
 export class RosterCommands {
   private rosterSystem: RosterSystem;
@@ -126,6 +122,12 @@ export class RosterCommands {
         option
           .setName("newname")
           .setDescription("New name for the team")
+          .setRequired(false)
+      )
+      .addRoleOption((option) =>
+        option
+          .setName("newrole")
+          .setDescription("New role for the team")
           .setRequired(false)
       )
       .addStringOption((option) =>
@@ -314,15 +316,13 @@ export class RosterCommands {
 
       let imageUrl = image?.url;
       
-      // If predefined logo is selected, upload it to Discord
+      // If predefined logo is selected, use Railway URL
       if (predefinedLogo && !imageUrl) {
-        const channel = interaction.channel as TextChannel;
-        const logoPath = join(import.meta.dirname!, "..", "assets", "team_logos", `${predefinedLogo}.png`);
-        const attachment = new AttachmentBuilder(logoPath);
-        
-        const message = await channel.send({ files: [attachment] });
-        imageUrl = message.attachments.first()?.url;
-        await message.delete(); // Clean up the message
+        // Use Railway app URL - will be set in production
+        const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
+          ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+          : "http://localhost:8000";
+        imageUrl = `${baseUrl}/team_logos/${predefinedLogo}.png`;
       }
 
       await this.rosterSystem.addTeamToRoster(
@@ -351,6 +351,7 @@ export class RosterCommands {
     const rosterName = interaction.options.getString("roster", true);
     const teamName = interaction.options.getString("teamname", true);
     const newName = interaction.options.getString("newname");
+    const newRole = interaction.options.getRole("newrole") as Role | null;
     const image = interaction.options.getAttachment("image");
     const predefinedLogo = interaction.options.getString("predefined_logo");
     const order = interaction.options.getInteger("order");
@@ -378,19 +379,18 @@ export class RosterCommands {
 
       const updates: any = {};
       if (newName) updates.team_name = newName;
+      if (newRole) updates.role_id = newRole.id;
       if (order !== null) updates.display_order = order;
       
       // Handle image update - either custom upload or predefined
       if (image) {
         updates.image_url = image.url;
       } else if (predefinedLogo) {
-        const channel = interaction.channel as TextChannel;
-        const logoPath = join(import.meta.dirname!, "..", "assets", "team_logos", `${predefinedLogo}.png`);
-        const attachment = new AttachmentBuilder(logoPath);
-        
-        const message = await channel.send({ files: [attachment] });
-        updates.image_url = message.attachments.first()?.url;
-        await message.delete(); // Clean up the message
+        // Use Railway URL
+        const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
+          ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+          : "http://localhost:8000";
+        updates.image_url = `${baseUrl}/team_logos/${predefinedLogo}.png`;
       }
 
       await this.rosterSystem.updateTeam(team.id, updates);

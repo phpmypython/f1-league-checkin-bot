@@ -303,7 +303,7 @@ export class RosterSystem {
     db.query(`DELETE FROM roster_teams WHERE id = ?`, [teamId]);
   }
 
-  async updateTeam(teamId: string, updates: Partial<Pick<RosterTeam, 'team_name' | 'image_url' | 'display_order'>>): Promise<void> {
+  async updateTeam(teamId: string, updates: Partial<Pick<RosterTeam, 'team_name' | 'role_id' | 'image_url' | 'display_order'>>): Promise<void> {
     const setClauses: string[] = [];
     const values: any[] = [];
     
@@ -312,9 +312,16 @@ export class RosterSystem {
       values.push(updates.team_name);
     }
     
+    if (updates.role_id !== undefined) {
+      setClauses.push('role_id = ?');
+      values.push(updates.role_id);
+    }
+    
+    let imageUpdated = false;
     if (updates.image_url !== undefined) {
       setClauses.push('image_url = ?');
       values.push(updates.image_url);
+      imageUpdated = true;
     }
     
     if (updates.display_order !== undefined) {
@@ -336,6 +343,43 @@ export class RosterSystem {
     const team = this.getTeam(teamId);
     if (team) {
       await this.updateTeamEmbed(team);
+    }
+  }
+
+  private async recreateTeamMessage(team: RosterTeam): Promise<void> {
+    if (!team.message_id) return;
+    
+    const rosterSet = this.getRosterSet(team.roster_set_id);
+    if (!rosterSet) return;
+    
+    try {
+      const guild = await this.client.guilds.fetch(rosterSet.guild_id);
+      const channel = await guild.channels.fetch(rosterSet.channel_id) as TextChannel;
+      const role = await guild.roles.fetch(team.role_id);
+      
+      if (!channel || !role) return;
+      
+      // Delete the old message
+      try {
+        const oldMessage = await channel.messages.fetch(team.message_id);
+        await oldMessage.delete();
+      } catch (error) {
+        console.log("Old message already deleted or not found");
+      }
+      
+      // Create new embed and post it
+      const embed = await this.createTeamEmbed(guild.id, team, role);
+      const newMessage = await channel.send({ embeds: [embed] });
+      
+      // Update the message ID in the database
+      db.query(
+        `UPDATE roster_teams SET message_id = ? WHERE id = ?`,
+        [newMessage.id, team.id]
+      );
+      
+      console.log(`Recreated message for team ${team.team_name} with new ID: ${newMessage.id}`);
+    } catch (error) {
+      console.error(`Failed to recreate team message for ${team.team_name}:`, error);
     }
   }
 
