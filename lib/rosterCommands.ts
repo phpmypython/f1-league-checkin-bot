@@ -4,16 +4,22 @@ import {
   Client,
   ChannelType,
   Role,
-  Attachment
+  Attachment,
+  AttachmentBuilder,
+  TextChannel
 } from "discord.js";
 import { RosterSystem } from "./rosterSystem.ts";
 import PermissionSystem from "./permissionSystem.ts";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 export class RosterCommands {
   private rosterSystem: RosterSystem;
   private permissionSystem: PermissionSystem;
+  private client: Client;
 
   constructor(client: Client, guildIds: string[]) {
+    this.client = client;
     this.rosterSystem = new RosterSystem(client);
     this.permissionSystem = new PermissionSystem(client);
     this.registerCommands(client, guildIds);
@@ -59,10 +65,30 @@ export class RosterCommands {
           .setDescription("Role that defines team members")
           .setRequired(true)
       )
+      .addStringOption((option) =>
+        option
+          .setName("predefined_logo")
+          .setDescription("Use a predefined team logo")
+          .setRequired(false)
+          .addChoices(
+            { name: "Alpine", value: "alpine" },
+            { name: "Aston Martin", value: "astonmartin" },
+            { name: "Division Host", value: "divisionhost" },
+            { name: "Ferrari", value: "ferrari" },
+            { name: "Haas", value: "haas" },
+            { name: "Kick Sauber", value: "kick-sauber" },
+            { name: "McLaren", value: "mclaren" },
+            { name: "Mercedes", value: "mercedes" },
+            { name: "Red Bull", value: "redbull" },
+            { name: "Stewards", value: "stewards" },
+            { name: "Visa Cash App RB", value: "visa-cashapp-rb" },
+            { name: "Williams", value: "williams" }
+          )
+      )
       .addAttachmentOption((option) =>
         option
           .setName("image")
-          .setDescription("Team logo/image")
+          .setDescription("Upload custom team logo/image")
           .setRequired(false)
       )
       .addIntegerOption((option) =>
@@ -102,10 +128,30 @@ export class RosterCommands {
           .setDescription("New name for the team")
           .setRequired(false)
       )
+      .addStringOption((option) =>
+        option
+          .setName("predefined_logo")
+          .setDescription("Use a predefined team logo")
+          .setRequired(false)
+          .addChoices(
+            { name: "Alpine", value: "alpine" },
+            { name: "Aston Martin", value: "astonmartin" },
+            { name: "Division Host", value: "divisionhost" },
+            { name: "Ferrari", value: "ferrari" },
+            { name: "Haas", value: "haas" },
+            { name: "Kick Sauber", value: "kick-sauber" },
+            { name: "McLaren", value: "mclaren" },
+            { name: "Mercedes", value: "mercedes" },
+            { name: "Red Bull", value: "redbull" },
+            { name: "Stewards", value: "stewards" },
+            { name: "Visa Cash App RB", value: "visa-cashapp-rb" },
+            { name: "Williams", value: "williams" }
+          )
+      )
       .addAttachmentOption((option) =>
         option
           .setName("image")
-          .setDescription("New team logo/image")
+          .setDescription("Upload custom team logo/image")
           .setRequired(false)
       )
       .addIntegerOption((option) =>
@@ -250,6 +296,7 @@ export class RosterCommands {
     const teamName = interaction.options.getString("teamname", true);
     const role = interaction.options.getRole("role", true) as Role;
     const image = interaction.options.getAttachment("image");
+    const predefinedLogo = interaction.options.getString("predefined_logo");
     const order = interaction.options.getInteger("order") ?? 0;
     const isSpecial = interaction.options.getBoolean("special") ?? false;
 
@@ -265,11 +312,24 @@ export class RosterCommands {
         return;
       }
 
+      let imageUrl = image?.url;
+      
+      // If predefined logo is selected, upload it to Discord
+      if (predefinedLogo && !imageUrl) {
+        const channel = interaction.channel as TextChannel;
+        const logoPath = join(import.meta.dirname!, "..", "assets", "team_logos", `${predefinedLogo}.png`);
+        const attachment = new AttachmentBuilder(logoPath);
+        
+        const message = await channel.send({ files: [attachment] });
+        imageUrl = message.attachments.first()?.url;
+        await message.delete(); // Clean up the message
+      }
+
       await this.rosterSystem.addTeamToRoster(
         rosterSet.id,
         teamName,
         role.id,
-        image?.url,
+        imageUrl,
         order,
         isSpecial
       );
@@ -292,6 +352,7 @@ export class RosterCommands {
     const teamName = interaction.options.getString("teamname", true);
     const newName = interaction.options.getString("newname");
     const image = interaction.options.getAttachment("image");
+    const predefinedLogo = interaction.options.getString("predefined_logo");
     const order = interaction.options.getInteger("order");
 
     try {
@@ -317,8 +378,20 @@ export class RosterCommands {
 
       const updates: any = {};
       if (newName) updates.team_name = newName;
-      if (image) updates.image_url = image.url;
       if (order !== null) updates.display_order = order;
+      
+      // Handle image update - either custom upload or predefined
+      if (image) {
+        updates.image_url = image.url;
+      } else if (predefinedLogo) {
+        const channel = interaction.channel as TextChannel;
+        const logoPath = join(import.meta.dirname!, "..", "assets", "team_logos", `${predefinedLogo}.png`);
+        const attachment = new AttachmentBuilder(logoPath);
+        
+        const message = await channel.send({ files: [attachment] });
+        updates.image_url = message.attachments.first()?.url;
+        await message.delete(); // Clean up the message
+      }
 
       await this.rosterSystem.updateTeam(team.id, updates);
 
