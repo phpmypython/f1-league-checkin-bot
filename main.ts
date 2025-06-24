@@ -105,15 +105,22 @@ serve(async (req) => {
   // Only serve images from the assets/team_logos directory
   if (url.pathname.startsWith("/team_logos/")) {
     const filePath = `./assets${url.pathname}`;
+    console.log(`Serving file: ${filePath}`);
     try {
       const response = await serveFile(req, filePath);
       // Ensure proper headers for images
       response.headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
       response.headers.set("Content-Type", "image/png");
       return response;
-    } catch {
+    } catch (error) {
+      console.error(`Error serving file ${filePath}:`, error);
       return new Response("Not found", { status: 404 });
     }
+  }
+  
+  // Health check endpoint
+  if (url.pathname === "/health") {
+    return new Response("OK", { status: 200 });
   }
   
   return new Response("Discord Check-in Bot", { status: 200 });
