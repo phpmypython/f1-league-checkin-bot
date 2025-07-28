@@ -16,6 +16,11 @@ if (!process.env.BOT_TOKEN) {
 const token = process.env.BOT_TOKEN;
 console.log("BOT_TOKEN found, length:", token.length);
 
+// Test network connectivity to Discord
+fetch("https://discord.com/api/v10")
+  .then(res => console.log("Discord API reachable, status:", res.status))
+  .catch(err => console.error("Cannot reach Discord API:", err));
+
 // Initialize the bot client
 const bot = new Client({
   intents: [
@@ -26,12 +31,30 @@ const bot = new Client({
     GatewayIntentBits.MessageContent,
   ],
   partials: [Partials.Message, Partials.Channel, Partials.GuildMember],
+  rest: {
+    timeout: 30000, // 30 second timeout
+    retries: 3
+  }
 });
 
 // Initialize CheckInSystem and pass the client instance
 const checkInSystem = new CheckInSystem(bot);
 const permissionSystem = new PermissionSystem(bot);
 let rosterCommands: RosterCommands;
+
+// Add debug event listeners
+bot.on("error", (error) => {
+  console.error("Discord client error:", error);
+});
+
+bot.on("warn", (info) => {
+  console.warn("Discord client warning:", info);
+});
+
+bot.on("debug", (info) => {
+  if (info.includes("Heartbeat") || info.includes("heartbeat")) return; // Skip heartbeat spam
+  console.log("Discord debug:", info);
+});
 
 bot.on("ready", async () => {
   console.log(`Bot is ready! Logged in as ${bot.user?.tag}`);
