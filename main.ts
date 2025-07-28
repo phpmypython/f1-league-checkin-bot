@@ -43,31 +43,57 @@ bot.on("ready", async () => {
   rosterCommands = new RosterCommands(bot, guildIds);
   
   bot.on("interactionCreate", async (interaction: Interaction) => {
-    if (interaction.isButton()) {
-      const [team, uniqueId] = interaction.customId.split("_");
+    try {
+      if (interaction.isButton()) {
+        console.log(`Button interaction received: ${interaction.customId} from user ${interaction.user.tag}`);
+        const [team, uniqueId] = interaction.customId.split("_");
 
-      // Retrieve the event and check-in status from SQLite if available
-      const eventOptions = checkInSystem.getEvent(uniqueId);
-      if (!eventOptions) {
-        await interaction.reply({
-          content: "This event could not be found. It may have been removed or is no longer active.",
-          ephemeral: true,
-        });
-        return;
-      }
+        // Retrieve the event and check-in status from SQLite if available
+        const eventOptions = checkInSystem.getEvent(uniqueId);
+        if (!eventOptions) {
+          console.error(`Event not found for uniqueId: ${uniqueId}`);
+          await interaction.reply({
+            content: "This event could not be found. It may have been removed or is no longer active.",
+            ephemeral: true,
+          });
+          return;
+        }
 
-      // Process check-in interaction with CheckInSystem
-      await checkInSystem.handleCheckIn(interaction, uniqueId);
-    } else if (interaction.isCommand()) {
-      // Handle slash command interactions
-      const rosterCommandNames = ["createroster", "addteam", "updateteam", "deleteroster", "deleteteam", "refreshroster", "reorderroster"];
-      if (rosterCommandNames.includes(interaction.commandName)) {
-        await rosterCommands.handleInteraction(interaction);
-      } else {
-        await slashCommands.handleInteraction(interaction);
+        // Process check-in interaction with CheckInSystem
+        await checkInSystem.handleCheckIn(interaction, uniqueId);
+      } else if (interaction.isCommand()) {
+        // Handle slash command interactions
+        const rosterCommandNames = ["createroster", "addteam", "updateteam", "deleteroster", "deleteteam", "refreshroster", "reorderroster"];
+        if (rosterCommandNames.includes(interaction.commandName)) {
+          await rosterCommands.handleInteraction(interaction);
+        } else {
+          await slashCommands.handleInteraction(interaction);
+        }
+      } else if (interaction.isAutocomplete()) {
+        await rosterCommands.handleAutocomplete(interaction);
       }
-    } else if (interaction.isAutocomplete()) {
-      await rosterCommands.handleAutocomplete(interaction);
+    } catch (error) {
+      console.error("Error handling interaction:", error);
+      console.error("Stack trace:", error.stack);
+      
+      // Try to respond to the user if we haven't already
+      try {
+        if (interaction.isButton() || interaction.isCommand()) {
+          if (interaction.deferred || interaction.replied) {
+            await interaction.followUp({
+              content: "An error occurred while processing your request. Please try again.",
+              ephemeral: true,
+            });
+          } else {
+            await interaction.reply({
+              content: "An error occurred while processing your request. Please try again.",
+              ephemeral: true,
+            });
+          }
+        }
+      } catch (replyError) {
+        console.error("Failed to send error message to user:", replyError);
+      }
     }
   });
 });

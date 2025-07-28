@@ -83,10 +83,16 @@ export default class CheckInSystem {
 
   // Store or update check-in status
   public saveCheckInStatus(uniqueId: string, team: string, members: { userId: string, nickname: string }[]) {
-    db.query(`
-      INSERT OR REPLACE INTO check_in_statuses (unique_id, team, members)
-      VALUES (?, ?, ?)
-    `, [uniqueId, team, JSON.stringify(members)]);
+    try {
+      db.query(`
+        INSERT OR REPLACE INTO check_in_statuses (unique_id, team, members)
+        VALUES (?, ?, ?)
+      `, [uniqueId, team, JSON.stringify(members)]);
+      console.log(`Saved check-in status for team ${team} with ${members.length} members`);
+    } catch (error) {
+      console.error("Database error saving check-in status:", error);
+      throw new Error(`Failed to save check-in status: ${error.message}`);
+    }
   }
   // Retrieve check-in status for a specific event
   public getCheckInStatus(uniqueId: string): Map<string, { userId: string, nickname: string }[]> {
@@ -197,65 +203,79 @@ export default class CheckInSystem {
 
 // Update check-in status and embed on interaction
 public async handleCheckIn(interaction: ButtonInteraction, uniqueId: string) {
-  const userId = interaction.user.id;
-  const team = interaction.customId.split("_")[0];
-  const guildMember = await interaction.guild?.members.fetch(userId);
-  const nickname = guildMember?.nickname || interaction.user.username; // Use nickname if available, else username
+  try {
+    console.log(`Processing check-in for user ${interaction.user.tag} with team ${interaction.customId}`);
+    
+    const userId = interaction.user.id;
+    const team = interaction.customId.split("_")[0];
+    const guildMember = await interaction.guild?.members.fetch(userId);
+    const nickname = guildMember?.nickname || interaction.user.username; // Use nickname if available, else username
 
-  // Retrieve current check-in status and modify member list
-  const statusMap = this.getCheckInStatus(uniqueId);
-  const currentMembers = statusMap.get(team) || [];
+    // Retrieve current check-in status and modify member list
+    const statusMap = this.getCheckInStatus(uniqueId);
+    const currentMembers = statusMap.get(team) || [];
 
-  let updatedMembers;
-  const isCheckedIn = currentMembers.some((member) => member.userId === userId);
+    let updatedMembers;
+    const isCheckedIn = currentMembers.some((member) => member.userId === userId);
 
-  if (isCheckedIn) {
-    // Remove user if already checked in
-    updatedMembers = currentMembers.filter((member) => member.userId !== userId);
-  } else {
-    // Add user if not already checked in
-    updatedMembers = [...currentMembers, { userId, nickname }];
+    if (isCheckedIn) {
+      // Remove user if already checked in
+      updatedMembers = currentMembers.filter((member) => member.userId !== userId);
+    } else {
+      // Add user if not already checked in
+      updatedMembers = [...currentMembers, { userId, nickname }];
+    }
+
+    // Update the status map and save to database
+    statusMap.set(team, updatedMembers);
+    await this.saveCheckInStatus(uniqueId, team, updatedMembers);
+
+    // Send notification about the check-in/out
+    const eventOptions = this.getEvent(uniqueId) as CheckInOptions;
+    // Determine the action based on current state and team
+    let action: "checked-in" | "checked-out" | "updated-status";
+    if (team === "decline") {
+      // For decline: adding = checked-out, removing = updated-status
+      action = isCheckedIn ? "updated-status" : "checked-out";
+    } else {
+      // For regular teams: adding = checked-in, removing = checked-out
+      action = isCheckedIn ? "checked-out" : "checked-in";
+    }
+    const guildId = interaction.guild?.id;
+    
+    if (guildId && eventOptions) {
+      try {
+        await this.notificationSystem.sendCheckInNotification(
+          guildId,
+          userId,
+          nickname,
+          team,
+          action,
+          {
+            season: eventOptions.season,
+            round: eventOptions.round,
+            track: eventOptions.track.displayName
+          },
+          interaction.channel?.id || ""
+        );
+      } catch (notificationError) {
+        console.error("Failed to send notification:", notificationError);
+        // Continue with the check-in process even if notification fails
+      }
+    }
+
+    // Rebuild fields with updated nickname display
+    const fields = [this.createEventTimeField(eventOptions), ...this.createConstructorFields(statusMap)];
+
+    const embed = interaction.message.embeds[0];
+    const updatedEmbed = new EmbedBuilder(embed).setFields(fields);
+    await interaction.update({ embeds: [updatedEmbed] });
+    
+    console.log(`Successfully processed check-in for ${nickname} to team ${team}`);
+  } catch (error) {
+    console.error("Error in handleCheckIn:", error);
+    throw error; // Re-throw to be caught by the main handler
   }
-
-  // Update the status map and save to database
-  statusMap.set(team, updatedMembers);
-  await this.saveCheckInStatus(uniqueId, team, updatedMembers);
-
-  // Send notification about the check-in/out
-  const eventOptions = this.getEvent(uniqueId) as CheckInOptions;
-  // Determine the action based on current state and team
-  let action: "checked-in" | "checked-out" | "updated-status";
-  if (team === "decline") {
-    // For decline: adding = checked-out, removing = updated-status
-    action = isCheckedIn ? "updated-status" : "checked-out";
-  } else {
-    // For regular teams: adding = checked-in, removing = checked-out
-    action = isCheckedIn ? "checked-out" : "checked-in";
-  }
-  const guildId = interaction.guild?.id;
-  
-  if (guildId && eventOptions) {
-    await this.notificationSystem.sendCheckInNotification(
-      guildId,
-      userId,
-      nickname,
-      team,
-      action,
-      {
-        season: eventOptions.season,
-        round: eventOptions.round,
-        track: eventOptions.track.displayName
-      },
-      interaction.channel?.id || ""
-    );
-  }
-
-  // Rebuild fields with updated nickname display
-  const fields = [this.createEventTimeField(eventOptions), ...this.createConstructorFields(statusMap)];
-
-  const embed = interaction.message.embeds[0];
-  const updatedEmbed = new EmbedBuilder(embed).setFields(fields);
-  await interaction.update({ embeds: [updatedEmbed] });
 }
   private async defaultTrackMap(track: string) {
     // Logic to return a default track map based on the track name
