@@ -17,8 +17,16 @@ const token = process.env.BOT_TOKEN;
 console.log("BOT_TOKEN found, length:", token.length);
 
 // Test network connectivity to Discord
-fetch("https://discord.com/api/v10")
-  .then(res => console.log("Discord API reachable, status:", res.status))
+fetch("https://discord.com/api/v10/users/@me", {
+  headers: {
+    "Authorization": `Bot ${token}`
+  }
+})
+  .then(res => {
+    console.log("Discord Auth test status:", res.status);
+    return res.text();
+  })
+  .then(body => console.log("Discord Auth response:", body))
   .catch(err => console.error("Cannot reach Discord API:", err));
 
 // Initialize the bot client
