@@ -7,11 +7,14 @@ import process from "node:process";
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { serveFile } from "https://deno.land/std@0.208.0/http/file_server.ts";
 
+console.log("Checking for BOT_TOKEN...");
 if (!process.env.BOT_TOKEN) {
   console.error("Please define the BOT_TOKEN environment variable");
+  console.error("Available env vars:", Object.keys(process.env).filter(key => !key.includes("TOKEN")));
   process.exit(1);
 }
 const token = process.env.BOT_TOKEN;
+console.log("BOT_TOKEN found, length:", token.length);
 
 // Initialize the bot client
 const bot = new Client({
@@ -121,7 +124,13 @@ bot.on("guildMemberUpdate", async (oldMember, newMember) => {
 
 
 // Log in the bot
-bot.login(token).catch((error) => console.error("Error logging in:", error));
+console.log("Attempting to login to Discord...");
+bot.login(token)
+  .then(() => console.log("Login successful, waiting for ready event..."))
+  .catch((error) => {
+    console.error("Error logging in:", error);
+    console.error("Full error details:", error.message, error.stack);
+  });
 
 // Start HTTP server to serve team logos
 const PORT = parseInt(process.env.PORT || "8000");
