@@ -159,7 +159,7 @@ export default class CheckInSystem {
       .setTitle(
         `${options.serverName} Season ${options.season} - Round ${options.round}: ${options.track.displayName}`,
       )
-      .setDescription("Check in for your team!")
+      .setDescription(options.description || "Check in for your team!")
       .addFields(fields)
       .setColor("#202020")
       .setImage(imageUrl);

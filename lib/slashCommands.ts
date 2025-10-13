@@ -95,6 +95,12 @@ class SlashCommands {
           .setName("track_map")
           .setDescription("Upload an image for the track map")
           .setRequired(false)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("description")
+          .setDescription("Custom description for the check-in message")
+          .setRequired(false)
       );
 
     const setCheckinChannelCommand = new SlashCommandBuilder()
@@ -188,6 +194,7 @@ class SlashCommands {
       const trackMap = interaction.options.getAttachment("track_map");
       const primaryChannel = interaction.options.getChannel("channel");
       const rolesString = interaction.options.getString("roles");
+      const description = interaction.options.getString("description");
 
       await interaction.deferReply({ ephemeral: true });
 
@@ -225,6 +232,7 @@ class SlashCommands {
         channels: [primaryChannel!.id],
         roles: roleIds,
         serverName,
+        description: description || undefined,
       };
 
       await interaction.editReply({

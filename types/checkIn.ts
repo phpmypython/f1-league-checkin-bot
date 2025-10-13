@@ -10,5 +10,6 @@ type CheckInOptions = {
   channels: string[];
   roles: string[]; // Map of track names to their corresponding values
   serverName: string; // ID of the guild (server)
+  description?: string; // Optional custom description for the check-in embed
 }; // Define the CheckInOptions type
 export type { CheckInOptions }; // Export the CheckInOptions type
