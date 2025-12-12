@@ -139,7 +139,7 @@ const Tracks: Record<TrackName, TrackInfo> = {
     name: "monaco",
     displayName: "Monaco 🇲🇨",
     length: 3.337,
-    image: "Monoco_Circuit.png", //Dumbasses misspelled monaco :(
+    image: "Monaco_Circuit.png", //Dumbasses misspelled monaco :(
   },
   monza: {
     name: "monza",
