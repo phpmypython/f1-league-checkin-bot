@@ -96,11 +96,8 @@ export class RosterSystem {
 
   private async createTeamEmbed(guildId: string, team: RosterTeam, role: Role): Promise<EmbedBuilder> {
     const guild = await this.client.guilds.fetch(guildId);
-    
-    // Ensure all members are cached
-    await guild.members.fetch();
-    
-    // Now get members with this role
+
+    // Get members with this role (uses Discord.js internal cache from GuildMembers intent)
     const members = Array.from(role.members.values()).sort((a: GuildMember, b: GuildMember) => {
       return a.displayName.localeCompare(b.displayName);
     });

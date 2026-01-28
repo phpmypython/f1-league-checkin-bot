@@ -71,6 +71,16 @@ bot.on("ready", async () => {
     status: "online",
   });
 
+  // Pre-fetch all guild members to populate cache (required for guilds with 100+ members)
+  for (const guild of bot.guilds.cache.values()) {
+    try {
+      await guild.members.fetch();
+      console.log(`Cached ${guild.memberCount} members for guild: ${guild.name}`);
+    } catch (error) {
+      console.error(`Failed to fetch members for guild ${guild.name}:`, error);
+    }
+  }
+
   // Register slash commands and pass CheckInSystem for persistent event handling
   const guildIds = bot.guilds.cache.map((guild) => guild.id);
   const slashCommands = new SlashCommands(bot, guildIds, checkInSystem);
