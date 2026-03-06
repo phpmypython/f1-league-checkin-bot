@@ -68,6 +68,30 @@ db.execute(`
   );
 `);
 
+db.execute(`
+  CREATE TABLE IF NOT EXISTS scheduled_events (
+    id TEXT PRIMARY KEY,
+    event_unique_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    post_at INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_by TEXT,
+    retry_count INTEGER DEFAULT 0,
+    error_message TEXT,
+    message_id TEXT,
+    posted_at INTEGER,
+    track_map_path TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (event_unique_id) REFERENCES events (unique_id)
+  );
+`);
+
+db.execute(`
+  CREATE INDEX IF NOT EXISTS idx_scheduled_events_status_time
+    ON scheduled_events (status, post_at);
+`);
+
 // Migration: Add is_special column if it doesn't exist
 try {
   db.query("SELECT is_special FROM roster_teams LIMIT 1");
@@ -82,6 +106,14 @@ try {
 } catch {
   console.log("Adding manager_role_id column to guild_settings table...");
   db.execute("ALTER TABLE guild_settings ADD COLUMN manager_role_id TEXT");
+}
+
+// Migration: Add guild_id column to events table if it doesn't exist
+try {
+  db.query("SELECT guild_id FROM events LIMIT 1");
+} catch {
+  console.log("Adding guild_id column to events table...");
+  db.execute("ALTER TABLE events ADD COLUMN guild_id TEXT");
 }
 
 export default db;
