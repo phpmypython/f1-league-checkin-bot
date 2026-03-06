@@ -100,6 +100,35 @@ class NotificationSystem {
       console.error("Error sending check-in notification:", error);
     }
   }
+  public async sendScheduleFailureNotification(
+    guildId: string,
+    eventUniqueId: string,
+    errorMessage: string,
+  ): Promise<void> {
+    try {
+      const channelId = await this.getNotificationChannel(guildId);
+      if (!channelId) return;
+
+      const channel = this.client.channels.cache.get(channelId) as TextChannel;
+      if (!channel) return;
+
+      const embed = new EmbedBuilder()
+        .setColor(0xff0000)
+        .setTitle("Scheduled Check-in Failed")
+        .setDescription(
+          `A scheduled check-in failed to post after multiple attempts.`,
+        )
+        .addFields(
+          { name: "Event ID", value: eventUniqueId, inline: true },
+          { name: "Error", value: errorMessage || "Unknown error", inline: false },
+        )
+        .setTimestamp();
+
+      await channel.send({ embeds: [embed] });
+    } catch (error) {
+      console.error("Error sending schedule failure notification:", error);
+    }
+  }
 }
 
 export default NotificationSystem;

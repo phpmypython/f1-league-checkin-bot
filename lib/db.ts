@@ -116,4 +116,12 @@ try {
   db.execute("ALTER TABLE events ADD COLUMN guild_id TEXT");
 }
 
+// Migration: Add description column to events table if it doesn't exist
+try {
+  db.query("SELECT description FROM events LIMIT 1");
+} catch {
+  console.log("Adding description column to events table...");
+  db.execute("ALTER TABLE events ADD COLUMN description TEXT");
+}
+
 export default db;

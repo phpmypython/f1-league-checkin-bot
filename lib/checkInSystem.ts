@@ -9,11 +9,12 @@ import {
   Client,
   ButtonInteraction,
 } from "discord.js";
-import db from "./db.ts"; // Import the SQLite database connection
+import db from "./db.ts";
 import { CheckInOptions } from "../types/checkIn.ts";
 import { Constructors } from "../types/constructors.ts";
 import {DateTime} from "luxon";
 import NotificationSystem from "./notificationSystem.ts";
+import process from "node:process";
 
 export default class CheckInSystem {
   private client: Client;
@@ -26,11 +27,11 @@ export default class CheckInSystem {
 
 
   // Save event to the database
-  public saveEvent(options: CheckInOptions, uniqueId: string) {
+  public saveEvent(options: CheckInOptions, uniqueId: string, guildId?: string) {
     db.query(
       `
-      INSERT OR REPLACE INTO events (unique_id, server_name, season, round, channel_id, date_time, timezone, roles, track_name, track_image)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO events (unique_id, server_name, season, round, channel_id, date_time, timezone, roles, track_name, track_image, guild_id, description)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
       [
         uniqueId,
@@ -43,21 +44,25 @@ export default class CheckInSystem {
         JSON.stringify(options.roles),
         options.track.displayName,
         options.track.image,
+        guildId || null,
+        options.description || null,
       ],
     );
   }
 
   // Retrieve event details
   public getEvent(uniqueId: string): CheckInOptions | null {
-    const result = db.query("SELECT * FROM events WHERE unique_id = ?", [
-      uniqueId,
-    ]);
+    const result = db.query(
+      `SELECT server_name, season, round, channel_id, date_time,
+              timezone, roles, track_name, track_image, guild_id, description
+       FROM events WHERE unique_id = ?`,
+      [uniqueId],
+    );
     const row = result?.[0];
 
     if (!row) return null;
 
     const [
-      _uniqueId,
       serverName,
       season,
       round,
@@ -67,6 +72,8 @@ export default class CheckInSystem {
       roles,
       trackName,
       trackImage,
+      _guildId,
+      description,
     ] = row;
 
     return {
@@ -78,6 +85,7 @@ export default class CheckInSystem {
       timezone,
       roles: JSON.parse(roles),
       track: { displayName: trackName, image: trackImage },
+      description: description as string | undefined,
     };
   }
 
@@ -98,7 +106,7 @@ export default class CheckInSystem {
   public getCheckInStatus(uniqueId: string): Map<string, { userId: string, nickname: string }[]> {
     const statuses = db.query("SELECT team, members FROM check_in_statuses WHERE unique_id = ?", [uniqueId]);
     const statusMap = new Map<string, { userId: string, nickname: string }[]>();
-  
+
     for (const [team, members] of statuses) {
       statusMap.set(team as string, JSON.parse(members as string));
     }
@@ -107,15 +115,15 @@ export default class CheckInSystem {
   private createEventTimeField(checkInOptions: CheckInOptions) {
     try {
       const { date_time, timezone } = checkInOptions;
-      
+
       // Parse the date in the correct timezone
       const date = DateTime.fromFormat(date_time, "yyyy-MM-dd h:mm a", { zone: timezone });
-      
+
       // Convert to UNIX timestamp
       const unixTimestamp = Math.floor(date.toSeconds());
       return {
         name: "Event Time",
-        value: `<t:${unixTimestamp}:F> 
+        value: `<t:${unixTimestamp}:F>
         <:countdown:1299484915137511444> <t:${unixTimestamp}:R>`,
         inline: false,
       };
@@ -130,10 +138,10 @@ export default class CheckInSystem {
     for (const [team, { emoji, displayName }] of Object.entries(Constructors)) {
       const members = checkInStatus.get(team) || [];
       const formattedMembers = members.length > 0
-        ? members.map((member) => `> ${member.nickname}`).join("\n") // Display nickname on each line
+        ? members.map((member) => `> ${member.nickname}`).join("\n")
         : "-";
       fields.push({
-        name: `${emoji} ${displayName} (${members.length})`, // Display member count
+        name: `${emoji} ${displayName} (${members.length})`,
         value: formattedMembers,
         inline: true,
       });
@@ -141,20 +149,68 @@ export default class CheckInSystem {
     return fields;
   }
 
-  // Create an embed for a new event
-  public async createEventEmbed(options: CheckInOptions, uniqueId: string) {
-    this.saveEvent(options, uniqueId);
-    console.log(options);
-    // Retrieve check-in statuses for each team from the database
+  // Download a track map image to persistent storage
+  public async downloadTrackMap(url: string, uuid: string): Promise<string | null> {
+    try {
+      const dataDir = Deno.env.get("DATABASE_PATH")
+        ? Deno.env.get("DATABASE_PATH")!.replace(/\/[^/]+$/, "/track_maps")
+        : "./data/track_maps";
+      await Deno.mkdir(dataDir, { recursive: true });
+
+      const response = await fetch(url);
+      if (!response.ok) {
+        console.error(`Failed to download track map: ${response.status}`);
+        return null;
+      }
+
+      const contentType = response.headers.get("content-type") || "image/png";
+      const ext = contentType.includes("jpeg") || contentType.includes("jpg")
+        ? ".jpg"
+        : contentType.includes("gif") ? ".gif"
+        : contentType.includes("webp") ? ".webp"
+        : ".png";
+
+      const filePath = `${dataDir}/${uuid}${ext}`;
+      const data = new Uint8Array(await response.arrayBuffer());
+      await Deno.writeFile(filePath, data);
+      console.log(`Track map saved to ${filePath}`);
+      return filePath;
+    } catch (error) {
+      console.error("Error downloading track map:", error);
+      return null;
+    }
+  }
+
+  // Get the public URL for a persisted track map
+  public getTrackMapUrl(filePath: string): string {
+    const filename = filePath.split("/").pop();
+    const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : `http://localhost:${process.env.PORT || "8000"}`;
+    return `${baseUrl}/track_maps/${filename}`;
+  }
+
+  // Post an event embed to a channel (no DB save — used by scheduler)
+  public async postEventToChannel(
+    options: CheckInOptions,
+    uniqueId: string,
+    trackMapPath?: string | null,
+  ) {
     const checkInStatus = this.getCheckInStatus(uniqueId);
+    const fields = [
+      this.createEventTimeField(options),
+      ...this.createConstructorFields(checkInStatus),
+    ];
 
-    const fields = [this.createEventTimeField(options), ...this.createConstructorFields(checkInStatus)];
+    let imageUrl: string;
+    if (trackMapPath) {
+      imageUrl = this.getTrackMapUrl(trackMapPath);
+    } else if (options.trackMap?.url) {
+      imageUrl = options.trackMap.url;
+    } else {
+      imageUrl = await this.defaultTrackMap(options.track.image);
+    }
 
-
-    const imageUrl = options.trackMap?.url ||
-      await this.defaultTrackMap(options.track.image);
-    console.log(imageUrl);
-    console.log(this.isValidUrl(imageUrl));
     const embed = new EmbedBuilder()
       .setTitle(
         `${options.serverName} Season ${options.season} - Round ${options.round}: ${options.track.displayName}`,
@@ -164,20 +220,18 @@ export default class CheckInSystem {
       .setColor("#202020")
       .setImage(imageUrl);
 
-    // Create buttons for each team in Constructors
     const actionRows: ActionRowBuilder<ButtonBuilder>[] = [];
     const buttons: ButtonBuilder[] = [];
 
-    for (const [team, { emoji, displayName }] of Object.entries(Constructors)) {
+    for (const [team, { emoji }] of Object.entries(Constructors)) {
       buttons.push(
         new ButtonBuilder()
           .setCustomId(`${team.toLowerCase()}_${uniqueId}`)
-          .setEmoji(emoji) // Assumes each constructor has an emoji
+          .setEmoji(emoji)
           .setStyle(ButtonStyle.Secondary),
       );
     }
 
-    // Group buttons into rows of 5
     for (let i = 0; i < buttons.length; i += 5) {
       actionRows.push(
         new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -186,9 +240,10 @@ export default class CheckInSystem {
       );
     }
 
-    const roleMentions = options.roles.map((roleId) => `<@&${roleId}>`)
-    .join(" ");
-    // Fetch the channel and send the embed with buttons
+    const roleMentions = options.roles
+      .map((roleId) => `<@&${roleId}>`)
+      .join(" ");
+
     const channel = await this.client.channels.fetch(
       options.channels[0],
     ) as TextChannel;
@@ -201,15 +256,22 @@ export default class CheckInSystem {
     return message;
   }
 
+  // Create an embed for a new event (saves to DB then posts)
+  public async createEventEmbed(options: CheckInOptions, uniqueId: string, guildId?: string) {
+    this.saveEvent(options, uniqueId, guildId);
+    console.log(options);
+    return await this.postEventToChannel(options, uniqueId);
+  }
+
 // Update check-in status and embed on interaction
 public async handleCheckIn(interaction: ButtonInteraction, uniqueId: string) {
   try {
     console.log(`Processing check-in for user ${interaction.user.tag} with team ${interaction.customId}`);
-    
+
     const userId = interaction.user.id;
     const team = interaction.customId.split("_")[0];
     const guildMember = await interaction.guild?.members.fetch(userId);
-    const nickname = guildMember?.nickname || interaction.user.username; // Use nickname if available, else username
+    const nickname = guildMember?.nickname || interaction.user.username;
 
     // Retrieve current check-in status and modify member list
     const statusMap = this.getCheckInStatus(uniqueId);
@@ -219,10 +281,8 @@ public async handleCheckIn(interaction: ButtonInteraction, uniqueId: string) {
     const isCheckedIn = currentMembers.some((member) => member.userId === userId);
 
     if (isCheckedIn) {
-      // Remove user if already checked in
       updatedMembers = currentMembers.filter((member) => member.userId !== userId);
     } else {
-      // Add user if not already checked in
       updatedMembers = [...currentMembers, { userId, nickname }];
     }
 
@@ -232,17 +292,14 @@ public async handleCheckIn(interaction: ButtonInteraction, uniqueId: string) {
 
     // Send notification about the check-in/out
     const eventOptions = this.getEvent(uniqueId) as CheckInOptions;
-    // Determine the action based on current state and team
     let action: "checked-in" | "checked-out" | "updated-status";
     if (team === "decline") {
-      // For decline: adding = checked-out, removing = updated-status
       action = isCheckedIn ? "updated-status" : "checked-out";
     } else {
-      // For regular teams: adding = checked-in, removing = checked-out
       action = isCheckedIn ? "checked-out" : "checked-in";
     }
     const guildId = interaction.guild?.id;
-    
+
     if (guildId && eventOptions) {
       try {
         await this.notificationSystem.sendCheckInNotification(
@@ -260,7 +317,6 @@ public async handleCheckIn(interaction: ButtonInteraction, uniqueId: string) {
         );
       } catch (notificationError) {
         console.error("Failed to send notification:", notificationError);
-        // Continue with the check-in process even if notification fails
       }
     }
 
@@ -270,21 +326,20 @@ public async handleCheckIn(interaction: ButtonInteraction, uniqueId: string) {
     const embed = interaction.message.embeds[0];
     const updatedEmbed = new EmbedBuilder(embed).setFields(fields);
     await interaction.update({ embeds: [updatedEmbed] });
-    
+
     console.log(`Successfully processed check-in for ${nickname} to team ${team}`);
   } catch (error) {
     console.error("Error in handleCheckIn:", error);
-    throw error; // Re-throw to be caught by the main handler
+    throw error;
   }
 }
   private async defaultTrackMap(track: string) {
-    // Logic to return a default track map based on the track name
     return `https://www.formula1.com/content/dam/fom-website/2018-redesign-assets/Circuit%20maps%2016x9/${track}`;
   }
-  // Helper function to validate URLs
+
   private isValidUrl(url: string | undefined): boolean {
     try {
-      return !!url && new URL(url); // Checks if URL is valid and not empty
+      return !!url && new URL(url);
     } catch (_) {
       return false;
     }

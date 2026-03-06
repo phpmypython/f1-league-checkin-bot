@@ -13,9 +13,11 @@ import { Tracks } from "../types/tracks.ts";
 import process from "node:process";
 import { CheckInOptions } from "../types/checkIn.ts";
 import CheckInSystem from "./checkInSystem.ts";
-import { v4 as uuidv4 } from "uuid"; // Import UUID to generate unique event IDs
+import { v4 as uuidv4 } from "uuid";
 import NotificationSystem from "./notificationSystem.ts";
 import PermissionSystem from "./permissionSystem.ts";
+import { DateTime } from "luxon";
+import db from "./db.ts";
 
 class SlashCommands {
   private client: Client;
@@ -101,6 +103,12 @@ class SlashCommands {
           .setName("description")
           .setDescription("Custom description for the check-in message")
           .setRequired(false)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("schedule_for")
+          .setDescription("When to post (YYYY-MM-DD h:mm AM/PM). Uses event timezone. Omit to post now.")
+          .setRequired(false)
       );
 
     const setCheckinChannelCommand = new SlashCommandBuilder()
@@ -132,11 +140,80 @@ class SlashCommands {
     }
   }
 
-  private async sendCheckInMessage(checkInOptions: CheckInOptions) {
-    const uniqueId = uuidv4(); // Generate a unique ID for this event
+  private async sendCheckInMessage(checkInOptions: CheckInOptions, guildId?: string) {
+    const uniqueId = uuidv4();
+    await this.checkInSystem.createEventEmbed(checkInOptions, uniqueId, guildId);
+  }
 
-    // Store event in SQLite and send initial check-in embed
-    await this.checkInSystem.createEventEmbed(checkInOptions, uniqueId);
+  private async scheduleCheckIn(
+    checkInOptions: CheckInOptions,
+    scheduleFor: string,
+    guildId: string,
+    channelId: string,
+    createdBy: string,
+  ): Promise<{ success: boolean; message: string; postAt?: number }> {
+    const timezone = checkInOptions.timezone;
+    const scheduleDate = DateTime.fromFormat(
+      scheduleFor,
+      "yyyy-MM-dd h:mm a",
+      { zone: timezone },
+    );
+
+    if (!scheduleDate.isValid) {
+      return {
+        success: false,
+        message: `Invalid date format. Please use: YYYY-MM-DD h:mm AM/PM (e.g., 2026-03-12 10:00 AM)`,
+      };
+    }
+
+    if (scheduleDate <= DateTime.now()) {
+      return {
+        success: false,
+        message: "Scheduled time must be in the future. Omit schedule_for to post immediately.",
+      };
+    }
+
+    // Warn if schedule_for is after the event time
+    const eventDate = DateTime.fromFormat(
+      checkInOptions.date_time,
+      "yyyy-MM-dd h:mm a",
+      { zone: timezone },
+    );
+    if (eventDate.isValid && scheduleDate >= eventDate) {
+      return {
+        success: false,
+        message: "Scheduled post time is after the event time. The check-in should be posted before the event.",
+      };
+    }
+
+    const uniqueId = uuidv4();
+    const scheduleId = uuidv4();
+    const postAt = scheduleDate.toUnixInteger();
+
+    // Save event data to events table
+    this.checkInSystem.saveEvent(checkInOptions, uniqueId, guildId);
+
+    // Download track map if provided
+    let trackMapPath: string | null = null;
+    if (checkInOptions.trackMap?.url) {
+      trackMapPath = await this.checkInSystem.downloadTrackMap(
+        checkInOptions.trackMap.url,
+        uniqueId,
+      );
+    }
+
+    // Insert into scheduled_events
+    db.query(
+      `INSERT INTO scheduled_events (id, event_unique_id, guild_id, channel_id, post_at, status, created_by, track_map_path)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      [scheduleId, uniqueId, guildId, channelId, postAt, createdBy, trackMapPath],
+    );
+
+    return {
+      success: true,
+      message: `Check-in scheduled! Will post to <#${channelId}> <t:${postAt}:R> (<t:${postAt}:F>)`,
+      postAt,
+    };
   }
 
 
@@ -221,6 +298,7 @@ class SlashCommands {
         return;
       }
 
+      const scheduleFor = interaction.options.getString("schedule_for");
       const serverName = interaction.guild?.name || "Unknown Server";
       const checkInOptions: CheckInOptions = {
         season: season!,
@@ -235,11 +313,27 @@ class SlashCommands {
         description: description || undefined,
       };
 
-      await interaction.editReply({
-        content: `✅ Check-in created!\n\n**Channel:** <#${primaryChannel?.id}>\n**Roles:** ${roleIds.map(id => `<@&${id}>`).join(', ')}`,
-      });
+      if (scheduleFor) {
+        const result = await this.scheduleCheckIn(
+          checkInOptions,
+          scheduleFor,
+          interaction.guild!.id,
+          primaryChannel!.id,
+          interaction.user.id,
+        );
 
-      this.sendCheckInMessage(checkInOptions);
+        if (result.success) {
+          await interaction.editReply({ content: `✅ ${result.message}` });
+        } else {
+          await interaction.editReply({ content: `❌ ${result.message}` });
+        }
+      } else {
+        await interaction.editReply({
+          content: `✅ Check-in created!\n\n**Channel:** <#${primaryChannel?.id}>\n**Roles:** ${roleIds.map(id => `<@&${id}>`).join(', ')}`,
+        });
+
+        this.sendCheckInMessage(checkInOptions, interaction.guild?.id);
+      }
       } else if (interaction.commandName === "setcheckinchannel") {
         const channel = (interaction as ChatInputCommandInteraction).options.getChannel("channel");
         

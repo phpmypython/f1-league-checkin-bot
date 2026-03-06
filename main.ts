@@ -2,6 +2,8 @@ import { Client, GatewayIntentBits, Partials, Interaction } from "discord.js";
 import SlashCommands from "./lib/slashCommands.ts";
 import CheckInSystem from "./lib/checkInSystem.ts";
 import { RosterCommands } from "./lib/rosterCommands.ts";
+import { ScheduleCommands } from "./lib/scheduleCommands.ts";
+import { Scheduler } from "./lib/scheduler.ts";
 import PermissionSystem from "./lib/permissionSystem.ts";
 import process from "node:process";
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
@@ -49,6 +51,7 @@ const bot = new Client({
 const checkInSystem = new CheckInSystem(bot);
 const permissionSystem = new PermissionSystem(bot);
 let rosterCommands: RosterCommands;
+let scheduleCommands: ScheduleCommands;
 
 // Add debug event listeners
 bot.on("error", (error) => {
@@ -85,7 +88,12 @@ bot.on("ready", async () => {
   const guildIds = bot.guilds.cache.map((guild) => guild.id);
   const slashCommands = new SlashCommands(bot, guildIds, checkInSystem);
   rosterCommands = new RosterCommands(bot, guildIds);
-  
+  scheduleCommands = new ScheduleCommands(bot, guildIds);
+
+  // Start the scheduler for posting scheduled events
+  const scheduler = new Scheduler(bot, checkInSystem);
+  scheduler.start();
+
   bot.on("interactionCreate", async (interaction: Interaction) => {
     try {
       if (interaction.isButton()) {
@@ -108,13 +116,20 @@ bot.on("ready", async () => {
       } else if (interaction.isCommand()) {
         // Handle slash command interactions
         const rosterCommandNames = ["createroster", "addteam", "updateteam", "deleteroster", "deleteteam", "refreshroster", "reorderroster"];
+        const scheduleCommandNames = ["listscheduled", "cancelscheduled"];
         if (rosterCommandNames.includes(interaction.commandName)) {
           await rosterCommands.handleInteraction(interaction);
+        } else if (scheduleCommandNames.includes(interaction.commandName)) {
+          await scheduleCommands.handleInteraction(interaction);
         } else {
           await slashCommands.handleInteraction(interaction);
         }
       } else if (interaction.isAutocomplete()) {
-        await rosterCommands.handleAutocomplete(interaction);
+        if (interaction.commandName === "cancelscheduled") {
+          await scheduleCommands.handleAutocomplete(interaction);
+        } else {
+          await rosterCommands.handleAutocomplete(interaction);
+        }
       }
     } catch (error) {
       console.error("Error handling interaction:", error);
@@ -178,18 +193,46 @@ const PORT = parseInt(process.env.PORT || "8000");
 serve(async (req) => {
   const url = new URL(req.url);
   
-  // Only serve images from the assets/team_logos directory
+  // Serve team logos from assets
   if (url.pathname.startsWith("/team_logos/")) {
     const filePath = `./assets${url.pathname}`;
-    console.log(`Serving file: ${filePath}`);
     try {
       const response = await serveFile(req, filePath);
-      // Ensure proper headers for images
       response.headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
       response.headers.set("Content-Type", "image/png");
       return response;
     } catch (error) {
       console.error(`Error serving file ${filePath}:`, error);
+      return new Response("Not found", { status: 404 });
+    }
+  }
+
+  // Serve track map images from persistent storage
+  if (url.pathname.startsWith("/track_maps/")) {
+    const filename = url.pathname.split("/").pop() || "";
+    // Validate filename: UUID + image extension only
+    if (!/^[a-f0-9-]+\.(png|jpg|jpeg|gif|webp)$/i.test(filename)) {
+      return new Response("Not found", { status: 404 });
+    }
+    const dbPath = process.env.DATABASE_PATH || "./checkin_bot.db";
+    const dataDir = dbPath.replace(/\/[^/]+$/, "");
+    const filePath = `${dataDir}/track_maps/${filename}`;
+    try {
+      const response = await serveFile(req, filePath);
+      const ext = filename.split(".").pop()?.toLowerCase();
+      const contentTypes: Record<string, string> = {
+        png: "image/png",
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        gif: "image/gif",
+        webp: "image/webp",
+      };
+      response.headers.set("Content-Type", contentTypes[ext || "png"] || "image/png");
+      response.headers.set("Cache-Control", "public, max-age=86400");
+      response.headers.set("X-Content-Type-Options", "nosniff");
+      return response;
+    } catch (error) {
+      console.error(`Error serving track map ${filePath}:`, error);
       return new Response("Not found", { status: 404 });
     }
   }
