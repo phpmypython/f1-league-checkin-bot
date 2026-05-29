@@ -334,12 +334,17 @@ public async handleCheckIn(interaction: ButtonInteraction, uniqueId: string) {
   }
 }
   private async defaultTrackMap(track: string) {
+    // A track image may be a full URL (e.g. newer circuits like Madrid)
+    // or just a filename appended to F1's standard circuit-map path.
+    if (this.isValidUrl(track)) return track;
     return `https://www.formula1.com/content/dam/fom-website/2018-redesign-assets/Circuit%20maps%2016x9/${track}`;
   }
 
   private isValidUrl(url: string | undefined): boolean {
+    if (!url) return false;
     try {
-      return !!url && new URL(url);
+      new URL(url);
+      return true;
     } catch (_) {
       return false;
     }

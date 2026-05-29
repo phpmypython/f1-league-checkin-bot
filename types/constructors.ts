@@ -1,9 +1,10 @@
 type ConstructorName =
   | "alpine"
   | "aston"
+  | "audi"
+  | "cadillac"
   | "ferrari"
   | "haas"
-  | "kick"
   | "mclaren"
   | "mercedes"
   | "redbull"
@@ -28,6 +29,16 @@ const Constructors: Record<ConstructorName, Constructor> = {
     emoji: "<:aston:1299419776233373828>",
     displayName: "Aston Martin",
   },
+  audi: {
+    name: "audi",
+    emoji: "<:audi:1509936477482516672>",
+    displayName: "Audi",
+  },
+  cadillac: {
+    name: "cadillac",
+    emoji: "<:cadillac:1509936512912068730>",
+    displayName: "Cadillac",
+  },
   ferrari: {
     name: "ferrari",
     emoji: "<:ferrari:1299419871922098299>",
@@ -37,11 +48,6 @@ const Constructors: Record<ConstructorName, Constructor> = {
     name: "haas",
     emoji: "<:haas:1299419901361918126>",
     displayName: "HAAS",
-  },
-  kick: {
-    name: "kick",
-    emoji: "<:kick:1299419919246561300>",
-    displayName: "Kick Sauber",
   },
   mclaren: {
     name: "mclaren",

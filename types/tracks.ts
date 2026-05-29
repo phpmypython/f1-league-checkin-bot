@@ -14,12 +14,12 @@ type TrackName =
   | "imola"
   | "japan"
   | "las_vegas"
+  | "madrid"
   | "mexico"
   | "miami"
   | "monaco"
   | "monza"
   | "netherlands"
-  | "portugal"
   | "qatar"
   | "saudi_arabia"
   | "singapore"
@@ -123,6 +123,12 @@ const Tracks: Record<TrackName, TrackInfo> = {
     length: 6.201,
     image: "Las_Vegas_Circuit.png",
   },
+  madrid: {
+    name: "madrid",
+    displayName: "Madrid <:flag_madrid:1509939132087144601>",
+    length: 5.474,
+    image: "https://media.formula1.com/image/upload/c_fit,h_704/q_auto/v1740000001/common/f1/2026/track/2026trackmadringdetailed.webp",
+  },
   mexico: {
     name: "mexico",
     displayName: "Mexico 🇲🇽",
@@ -152,12 +158,6 @@ const Tracks: Record<TrackName, TrackInfo> = {
     displayName: "Netherlands 🇳🇱",
     length: 4.259,
     image: "Netherlands_Circuit.png",
-  },
-  portugal: {
-    name: "portugal",
-    displayName: "Portugal 🇵🇹",
-    length: 4.684,
-    image: "Portugal_Circuit.png",
   },
   qatar: {
     name: "qatar",
